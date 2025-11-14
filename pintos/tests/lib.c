@@ -5,6 +5,9 @@
 #include <string.h>
 #include <syscall.h>
 
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+
 const char *test_name;
 bool quiet = false;
 

@@ -204,6 +204,12 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	// MY_TODO: busy waiting 말고 진짜 잠드는 걸로 구현하기
+
+	while (1) {
+		;
+	}
+
 	return -1;
 }
 
@@ -334,9 +340,27 @@ load (const char *file_name, struct intr_frame *if_) {
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
+	
+	/* Parsing file_name */
+	char *save_ptr, *token;
+	char *argv[64] = { NULL }; // 일단 128 정도로 설정
+
+	// file_name이 const 변수여서 복사본 만듦
+	void *fn_copy = palloc_get_page (0);
+	if (fn_copy == NULL)
+		return TID_ERROR;
+	strlcpy (fn_copy, file_name, PGSIZE);
+
+	// argv[0]에는 파일 이름, 이후에는 인자값들이 위치
+	int arg_index = 0;
+
+	for (token = strtok_r (fn_copy, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
+		argv[arg_index] = token;
+		arg_index++;
+	}
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (argv[0]);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -416,6 +440,65 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+	/*
+	1. if_->rsp 8의 배수로 정렬 (높은 주소에서 낮은 주소로 내려가므로, 더 낮은 값으로 정렬되게)
+	2. arg_index - 1 부터 (뒤에서부터) 하나씩 넣어주기 (memcpy 사용하고, \0 까지 들어가도록 )
+	3. PADDING 해주고
+	4. sentinal (NULL 포인터) 하나 넣어주기
+	5. 다시 arg_index - 1 부터 해당 문자열의 시작 포인터 위치 넣어주기 (USER_STACK부터 size만큼 빼면서 내려오면 될 듯?)
+	6. rsi를 argv[0]의 주소, rdi를 argc (argv의 개수 = arg_index - 2)
+	7. fake return address 넣어주기 (NULL 같은 거 하나 넣어주자)
+	*/
+
+	// 1. rsp 8의 배수로 정렬
+	unsigned int padding1 = (uintptr_t)if_->rsp % 8; 
+	
+	if_->rsp -= padding1;
+	memset(if_->rsp, 0, padding1); // 정렬하고 빈 공간을 0으로 채움
+	
+	// 2.
+	char *arg_address[64] = { NULL };
+
+	for (int arg_index_copy = arg_index-1; arg_index_copy >= 0; arg_index_copy --) {
+		char *argument = argv[arg_index_copy];
+
+		if_->rsp -= (strlen(argument) + 1); // rsp 값을 감소 (밑으로 키운 다음에) -> sizeof(argument)에 \0이 포함되지 않으므로, +1해서 \0까지 포함시킨다.
+		arg_address[arg_index_copy] = if_->rsp;
+		memcpy(if_->rsp, argument, strlen(argument) + 1); // 밑에서부터 위로 데이터를 복사
+	}
+
+	// 3. 다시 한 번 PADDING
+	unsigned int padding2 = (uintptr_t)if_->rsp % 8; 
+	
+	if_->rsp -= padding2;
+	memset(if_->rsp, 0, padding2); // 정렬하고 빈 공간을 0으로 채움
+
+	// 4. sentinal 하나 넣기
+	if_->rsp -= sizeof(char *); // 8바이트 사이즈만큼
+	memset(if_->rsp, 0, sizeof(char *));
+
+	// 5. 다시 시작 포인터 위치 넣어주기
+	for (int arg_index_copy2 = arg_index-1; arg_index_copy2 >= 0; arg_index_copy2 --) {
+		char *argument_address = arg_address[arg_index_copy2];
+
+		if_->rsp -= (sizeof(argument_address));
+		memcpy(if_->rsp, &(argument_address), sizeof(argument_address));
+	}
+
+	// 6. 레지스터 값 세팅
+	if_->R.rsi = if_->rsp;
+	if_->R.rdi = (uint64_t)(arg_index);
+
+	// 7. fake return address 넣기
+	if_->rsp -= sizeof(char *); // 8바이트 사이즈만큼
+	memset(if_->rsp, 0, sizeof(char *));
+
+	// printf("DEBUG: rsp       = %p\n", (void *)if_->rsp);
+	// printf("DEBUG: argc(rdi) = %d\n", if_->R.rdi);
+	// printf("DEBUG: argv(rsi) = %p\n", (void *)if_->R.rsi);
+
+	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 
 	success = true;
 

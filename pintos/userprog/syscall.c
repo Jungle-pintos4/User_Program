@@ -8,6 +8,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
+#include "lib/kernel/stdio.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -42,5 +44,30 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	printf ("system call!\n");
-	thread_exit ();
+	uint64_t syscall_number = f->R.rax;
+
+	switch (syscall_number)
+	{
+	case SYS_WRITE:
+		/* write 함수를 호출한 경우 */
+		int fd = (int) f->R.rdi;
+		char *buffer = (char *) f->R.rsi;
+		unsigned int length = (unsigned int) f->R.rdx;
+
+		if (fd == 1) { // STDOUT_FILENO, 화면 출력일때만 일단 처리해두기
+			putbuf(buffer, (size_t)length);
+			f->R.rax = (uint64_t)length;
+
+			// MY_TODO: 바이트를 쓸 수 없는 경우 0을 반환하기 (예외처ㅣㄹ)
+		}
+		
+		break;
+
+	case SYS_EXIT:
+		thread_exit ();
+		break;
+	
+	default:
+		break;
+	}
 }
