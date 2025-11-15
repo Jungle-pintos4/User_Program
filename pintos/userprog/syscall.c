@@ -13,6 +13,10 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
+void halt(void);
+void exit(struct intr_frame *f);
+void write(struct intr_frame *f);
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -42,23 +46,37 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
 	uint64_t syscall_number = f->R.rax;
 
 	switch (syscall_number)
 	{
-	case SYS_WRITE:
-		write(f);
-		break;
+		case SYS_HALT:
+			halt();
+			break;
 
-	case SYS_EXIT:
-		thread_exit ();
-		break;
-	
-	default:
-		break;
+		case SYS_EXIT:
+			exit(f);
+			break;
+
+		case SYS_WRITE:
+			write(f);
+			break;
+		
+		default:
+			break;
 	}
 
+}
+
+void halt(void) {
+	power_off();
+}
+
+void exit(struct intr_frame *f) {
+	int status = (int) f->R.rdi;
+	
+	thread_current()->exit_status = status;
+	thread_exit ();
 }
 
 void write(struct intr_frame *f) {

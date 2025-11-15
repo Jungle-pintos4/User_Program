@@ -259,7 +259,7 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	sema_up(&wait_sema);
 
-	printf("%s: exit(0)\n", curr->name);
+	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	// 나중에 exit 구현할 때 구현하고, 일단은 exit(0)만 출력하게 설정하자
 	// printf ("%s: exit(%d)\n", curr->name);

@@ -97,6 +97,7 @@ struct thread {
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
+	int exit_status; 					/* 종료 상태값 */
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */
