@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,11 +28,19 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+static struct init_args {
+	char *fn_copy;
+	struct semaphore *wait_sema_of_parent;
+};
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
 }
+
+// MY_TODO 일단은 임시로 전역 변수로 설정해둠
+static struct semaphore wait_sema;
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
@@ -40,33 +49,63 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
 	tid_t tid;
 
+	// 자식 프로세스에게 전달하는 인자들을 패키징
+	// wait_sema는 자식 프로세스가 종료될때까지 살아있어야 하니까, 따로 malloc해서 메모리 공간을 할당
+
+	sema_init(&wait_sema, 0);
+
+	// struct init_args *args = palloc_get_page(0);
+	// if (args == NULL)
+	// 	return TID_ERROR;
+
+	// args->wait_sema_of_parent = &(wait_sema);
+
+	// args->fn_copy = (void *)args + sizeof(struct init_args);
+	// strlcpy (args->fn_copy, file_name, PGSIZE);
+	
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
+	char *fn_copy;
+
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+	
+	// 비효율적인 것 같긴 한데, 일단은 가보자.
+	char *name_copy, *saved_ptr;
+
+	name_copy = palloc_get_page (0);
+	if (name_copy == NULL)
+		return TID_ERROR;
+	strlcpy (name_copy, file_name, PGSIZE);
+
+	// char *real_name = strtok_r(name_copy, " ", &saved_ptr);
+	char *delimiter = strchr(name_copy, ' ');
+	if (delimiter != NULL) {
+		*delimiter = '\0';
+	}
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (name_copy, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
+		palloc_free_page (name_copy);
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
-initd (void *f_name) {
+initd (void *args) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
 	process_init ();
 
-	if (process_exec (f_name) < 0)
+	if (process_exec (args) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
@@ -205,12 +244,9 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
 	// MY_TODO: busy waiting 말고 진짜 잠드는 걸로 구현하기
+	sema_down(&wait_sema);
 
-	while (1) {
-		;
-	}
-
-	return -1;
+	return 0;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -221,7 +257,12 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	sema_up(&wait_sema);
 
+	printf("%s: exit(0)\n", curr->name);
+
+	// 나중에 exit 구현할 때 구현하고, 일단은 exit(0)만 출력하게 설정하자
+	// printf ("%s: exit(%d)\n", curr->name);
 	process_cleanup ();
 }
 

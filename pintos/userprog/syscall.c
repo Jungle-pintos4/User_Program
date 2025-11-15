@@ -43,7 +43,6 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
 	uint64_t syscall_number = f->R.rax;
 
 	switch (syscall_number)
@@ -70,4 +69,5 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	default:
 		break;
 	}
+
 }
