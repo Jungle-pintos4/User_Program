@@ -41,6 +41,28 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	switch (f->R.rax)
+	{
+	case SYS_WRITE:
+		/* code */
+		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+		break;
+
+	case SYS_EXIT:
+		thread_current()->exit_status = f->R.rdi;
+        thread_exit();
+        break;
+		
+	default:
+		break;
+	}
 }
+
+int write (int fd, const void *buffer, unsigned length){
+	if(fd == 1 || fd == 2){
+		putbuf(buffer, length);
+		return length;
+	}
+
+	return 0;
+};

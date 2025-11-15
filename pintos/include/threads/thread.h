@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -97,6 +98,12 @@ struct thread {
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
+
+	int exit_status;                    // 종료 상태 (기본값 -1)
+	struct semaphore wait_sema;         // wait 동기화
+	struct thread *parent;              // 부모 프로세스
+	struct list child_list;             // 자식 리스트
+	struct list_elem child_elem;        // 자식 리스트의 요소
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */

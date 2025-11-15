@@ -210,6 +210,12 @@ thread_create (const char *name, int priority,
 
 	/* 선점 구현 */
 	thread_preemption(list_entry(list_begin(&ready_list), struct thread, elem)); 
+
+	#ifdef USERPROG
+	struct thread *curr = thread_current();
+	t->parent = curr;
+	list_push_back(&curr->child_list, &t->child_elem);
+	#endif
 	return tid;
 }
 
@@ -550,6 +556,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_lock = NULL;
 	t->waiting_list = NULL;
 	list_init(&t->lock_list);
+#ifdef USERPROG
+	t->exit_status = -1;
+	sema_init(&t->wait_sema, 0);
+	t->parent = NULL;
+	list_init(&t->child_list);
+#endif
 }
 
 /* 스케줄될 다음 스레드를 선택하여 반환. 실행 큐가 비어있지 않다면
