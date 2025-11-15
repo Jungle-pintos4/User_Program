@@ -1,4 +1,6 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
+#include "threads/synch.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -9,9 +11,19 @@
 #include "intrinsic.h"
 #include "threads/init.h"
 #include "threads/vaddr.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+
+/* TODO : 임시 방편 전역 변수 -> 나중에 반드시 수정해야 함*/
+extern struct semaphore tmp_sema;
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+static void sys_halt (void); 
+static void sys_exit (int status);
+static int sys_write (int fd, const void *buffer, unsigned length);
+static int sys_create(const char *file, unsigned initial_size);
+
 
 /* System call.
  *
@@ -46,33 +58,53 @@ syscall_handler (struct intr_frame *f ) {
 	uint64_t syscall_num= f -> R.rax;
 	switch(syscall_num){
 		case SYS_HALT:
-			halt();
+			sys_halt();
 			break;
 		case SYS_EXIT:
-			exit((int) f -> R.rdi);
+			sys_exit((int) f -> R.rdi);
 			break;
 		case SYS_WRITE:
-			write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned int) f -> R.rdx);
+			f -> R.rax = sys_write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned int) f -> R.rdx);
+			break;
+		case SYS_CREATE:
+			f -> R.rax = sys_create((const char *) f -> R.rdi, (unsigned) f -> R.rsi);
 			break;
 		default:
-			exit(-1);
+			sys_exit(-1);
 			break;
 	}
 }
 
-void halt (void){
+static void sys_halt (void){
 	power_off();
 }
-void exit (int status){
+
+static void sys_exit (int status){
 	struct thread *cur = thread_current();
-	printf("%s: exit(%d)", cur -> name, status);
+	printf("%s: exit(%d)\n", cur -> name, status);
+	/* TODO : 임시 방편 나중에 반드시 수정 */
+	sema_up(&tmp_sema);
 	thread_exit();
 }
 
-int write (int fd, const void *buffer, unsigned length){
+static int sys_write (int fd, const void *buffer, unsigned length){
 	if(fd == 1){
 		putbuf(buffer, length);
 		return (int) length;
 	}
 	return -1;
+}
+
+static int sys_create(const char *file, unsigned initial_size){
+	if(file == NULL){
+		sys_exit(-1);
+		// return 0;
+	}
+
+	bool result = filesys_create(file, initial_size);
+	if(!result) {
+		sys_exit(-1);
+		// return 0;
+	} 
+	return 1;
 }

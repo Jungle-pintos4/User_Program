@@ -27,6 +27,8 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+/* TODO : 임시 방편 전역 변수 -> 나중에 반드시 수정*/
+struct semaphore tmp_sema;
 
 /* General process initializer for initd and other process. */
 static void
@@ -214,9 +216,8 @@ process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while(1){
-		child_tid()
-	}
+	/* TODO: process wait를 위한 임시 방편 -> 나중에 반드시 수정 */
+	sema_down(&tmp_sema);
 	return -1;
 }
 
