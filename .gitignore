@@ -28,3 +28,9 @@ core
 
 # macOS
 .DS_Store
+pintos/userprog/select_test.sh
+pintos/userprog/.test_status
+pintos/userprog/.test_config
+pintos/.vscode/settings.json
+.vscode/settings.json
+.vscode/launch.json

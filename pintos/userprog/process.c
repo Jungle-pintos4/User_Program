@@ -219,39 +219,28 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	struct thread *curr = thread_current();
     struct thread *child = NULL;
     struct list temp_list;
     
 	list_init(&temp_list);
 
-    // pop_front로 하나씩 꺼내면서 찾기
-    while (!list_empty(&curr->child_list)) {
-        struct list_elem *e = list_pop_front(&curr->child_list);
-        struct thread *t = list_entry(e, struct thread, child_elem);
-
-        if (t->tid == child_tid) {
-            // 찾았다!
-        	child = t;
-        	break;
-        } else {
-            // 아니면 임시 리스트에 보관
-            list_push_back(&temp_list, e);
-        }
-    }
-
-      // 임시 리스트 요소들 다시 원래 리스트로 복원
-    while (!list_empty(&temp_list)) {
-        list_push_back(&curr->child_list, list_pop_front(&temp_list));
-    }
+	struct list_elem *target = list_begin(&curr -> child_list);
+	while(target != list_end(&curr -> child_list)){
+		struct thread *t = list_entry(target, struct thread, child_elem);
+		if(t -> tid == child_tid){
+			child = t;
+			break;
+		}
+		target = list_next(target);
+	}
 
     if (child == NULL) {
         return -1;
     }
 
 	sema_down(&child->wait_sema);
-	
     return child->exit_status;
 }
 
