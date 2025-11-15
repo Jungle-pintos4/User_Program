@@ -7,6 +7,8 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/init.h"
+#include "threads/vaddr.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -39,8 +41,38 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f ) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	uint64_t syscall_num= f -> R.rax;
+	switch(syscall_num){
+		case SYS_HALT:
+			halt();
+			break;
+		case SYS_EXIT:
+			exit((int) f -> R.rdi);
+			break;
+		case SYS_WRITE:
+			write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned int) f -> R.rdx);
+			break;
+		default:
+			exit(-1);
+			break;
+	}
+}
+
+void halt (void){
+	power_off();
+}
+void exit (int status){
+	struct thread *cur = thread_current();
+	printf("%s: exit(%d)", cur -> name, status);
+	thread_exit();
+}
+
+int write (int fd, const void *buffer, unsigned length){
+	if(fd == 1){
+		putbuf(buffer, length);
+		return (int) length;
+	}
+	return -1;
 }

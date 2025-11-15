@@ -28,3 +28,9 @@ core
 
 # macOS
 .DS_Store
+/.vscode/
+pintos/.vscode/settings.json
+pintos/userprog/.test_config
+pintos/userprog/.test_status
+.devcontainer/Dockerfile
+pintos/userprog/select_test.sh

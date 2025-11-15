@@ -94,6 +94,10 @@ struct thread {
 	struct lock *waiting_lock;			/* 현재 쓰레드가 기다리고 있는 lock */
 	struct list *waiting_list; 			/* 현재 쓰레드가 block 되어서 대기하고 있는 리스트의 위치 */
 
+	struct list children_list;			/* 자식 프로세스 리스트 */
+	struct list_elem ch_elem;			
+	struct semaphore semas;				/* 자식 프로세스 종료 대기를 위한 세마포어 */
+
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */

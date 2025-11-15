@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -50,8 +51,12 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* TODO: 쓰레드 이름만 들어가게 수정해야 함. 급한거는 아님(현재 file_name에는 echo x가 들어감) */
+	char *saveptr;
+	char *file_name_tk = strtok_r(file_name, " ", &saveptr);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_name_tk, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -63,7 +68,6 @@ initd (void *f_name) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
-
 	process_init ();
 
 	if (process_exec (f_name) < 0)
@@ -167,7 +171,10 @@ process_exec (void *f_name) {
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
-	 * it stores the execution information to the member. */
+	 * it stores the execution information to the member.
+	 * 쓰레드 구조체 내 멤버를 사용해서는 안됨 !! -> 걔는 스케줄링(문맥 전환) 때 계속 덮어써지는 것임
+	 * 프로세스 생성하는 경우에는 이런 방식으로 구성해야 됨 
+	 * */
 	struct intr_frame _if;
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
@@ -183,6 +190,9 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+	
+	// sema_up(thread_current() -> sema))
+	
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -200,10 +210,13 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(1){
+		child_tid()
+	}
 	return -1;
 }
 
@@ -328,6 +341,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	char *cmdline_copy = NULL;
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -335,10 +349,31 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
+	/* 파일 이름만 토큰으로 분리하기 위해 미리 복사 */
+	cmdline_copy = palloc_get_page(0);
+	if(cmdline_copy == NULL){
+		printf("palloc_get_page failed\n");
+		goto done;
+	}
+	strlcpy (cmdline_copy, file_name, PGSIZE);
+
+	/* 파일 이름만 토큰으로 분리 */
+	char *save_ptr = NULL;
+	char *token = NULL;
+	char *argv[128]; /* 사이즈는 고민에 고민 */
+	int argc = 0;
+	
+	for(token = strtok_r(cmdline_copy, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)){
+		argv[argc++] = token;
+		if(argc >= 128){
+			goto done;
+		}
+	}
+
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (argv[0]); // argv[0] : pure program name(ex. echo, /bin/ls)
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", argv[0]);
 		goto done;
 	}
 
@@ -354,7 +389,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	/* Read program headers. */
+	/* Read program headers. */                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 	file_ofs = ehdr.e_phoff;
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		struct Phdr phdr;
@@ -414,15 +449,62 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	/* 인자를 스택에 배치하기  */
+	place_argument_stack(if_, argv, argc);
+	
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	if(file != NULL){
+		file_close (file);
+	}
+	if(cmdline_copy != NULL){
+		palloc_free_page(cmdline_copy);
+	}
 	return success;
+}
+
+/* 1. 각 토큰 마다 길이 계산 */
+/* 2. 스택 포인터를 길이만큼 감소 */
+/* 3. 스택 아래로 자라니까 토큰 배열에서 마지막부터 -> 처음방식으로 처리*/
+/* 4. 문자열 하나 복사할 때마다 스택 포인터 감소 -> 그 문자열의 위치를 기록(나중에 argv에서 기록해야 함)  */
+/* 5. 문자열의 위치를 기록 후 fake return address 기록*/
+void
+place_argument_stack(struct intr_frame *if_, char **argv, int argc){
+	uintptr_t user_rsp = if_ -> rsp;
+	char *arg_addrs[128];
+	
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		size_t len = strlen(argv[i]) + 1;
+		user_rsp -= len;
+		memcpy((void *) user_rsp, argv[i], len);
+		arg_addrs[i] = (char *) user_rsp;
+	}
+	/* 워드 정렬 액세스를 위해 스택 포인터를 8의 배수로 반올림하기 */
+	user_rsp &= ~((uintptr_t)0x7); // 8의 배수 aligned
+
+	/* argv[argc] = NULL*/
+	user_rsp -= sizeof(char *);
+	memset((void *) user_rsp, 0, sizeof(char *));
+
+	/* argv[argc - 1] ~ argv[0] push */
+	for(int i = argc - 1; i >= 0; i--){
+		user_rsp -= sizeof(char *);
+		memcpy((void *) user_rsp, &arg_addrs[i], sizeof(char *));
+	}
+	/* argv[0] */
+	uintptr_t argv_user = user_rsp;
+
+	/* fake return address */
+	user_rsp -= sizeof(char *);
+	memset((void *) user_rsp, 0, sizeof(char *));
+
+	/* 인자를 레지스터에 넣기 */
+	if_ -> R.rsi = (uint64_t) argv_user;
+	if_ -> R.rdi = (uint64_t) argc;
+	if_ -> rsp = user_rsp;	
 }
 
 
