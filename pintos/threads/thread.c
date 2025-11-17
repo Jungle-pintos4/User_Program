@@ -112,6 +112,7 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&destruction_req);
 	list_init (&sleep_list);
+	
 
 	/* 실행 중인 스레드를 위한 스레드 구조체 설정. */
 	initial_thread = running_thread ();
@@ -556,11 +557,13 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_lock = NULL;
 	t->waiting_list = NULL;
 	list_init(&t->lock_list);
+
 #ifdef USERPROG
 	t->exit_status = -1;
 	sema_init(&t->wait_sema, 0);
 	t->parent = NULL;
 	list_init(&t->child_list);
+	memset(t->fd_table, 0, sizeof(t->fd_table));
 #endif
 }
 

@@ -104,6 +104,7 @@ struct thread {
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
+	struct file *fd_table[64];	// 쓰레드 (프로세스)의 파일 디스크립터 테이블 (일단 32 고정 배열로)
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */
