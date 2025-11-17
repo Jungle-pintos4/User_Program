@@ -21,6 +21,7 @@ void exit(int status);
 bool create(const char *file, unsigned initial_size);
 int write(int fd, const void *buffer, unsigned length);
 int open(const char *file);
+int read (int fd, void *buffer, unsigned length);
 
 /* System call.
  *
@@ -58,7 +59,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	switch (f->R.rax)
 	{
 	case SYS_WRITE:
-		/* code */
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
@@ -77,6 +77,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 	case SYS_OPEN:
 		f->R.rax = open(file);
+		break;
+
+	case SYS_READ:
+		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
 	default:
@@ -116,6 +120,7 @@ void exit (int status){
 
 bool create(const char *file, unsigned initial_size) {
     // NULL이거나 커널 영역이면 종료
+	// bad ptr -> pml4 valideate 판독해야됌 귀찮음
     if (file == NULL || !is_user_vaddr(file)) {
         exit(-1);
     }
@@ -124,10 +129,46 @@ bool create(const char *file, unsigned initial_size) {
 	return filesys_create(file, initial_size);
 }
 
+int read (int fd, void *buffer, unsigned length){
+	struct thread *curr = thread_current();
+
+	if (!is_user_vaddr(buffer)) {
+        exit(-1);
+    }
+
+	if (fd == 0){
+		for(int i=0; i <length; i++){
+			((char *)buffer)[0] = input_getc();
+		}
+		return length;
+	}else{
+		struct file *file = curr->fdt[fd];
+			if (file == NULL) {
+        		exit(-1);
+    		}
+		return file_read(file, buffer, length);
+	}
+
+	return -1;
+};
+
 int write (int fd, const void *buffer, unsigned length){
+	struct thread *curr = thread_current();
+
+	if(!is_user_vaddr(buffer)) {
+        	exit(-1);
+    }
+
 	if(fd == 1 || fd == 2){
 		putbuf(buffer, length);
 		return length;
+	}else{
+		struct file *file = curr->fdt[fd];
+		if (file == NULL) {
+        	exit(-1);
+    	}
+
+		return file_write(file, buffer, length);
 	}
 
 	return 0;
