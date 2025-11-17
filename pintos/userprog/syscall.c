@@ -11,6 +11,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
+#include "devices/input.h"
 #include <string.h>
 
 void syscall_entry (void);
@@ -22,6 +23,8 @@ static void exit(int status);
 static int open(const char *file);
 static void check_valid_access(void *uaddr);
 static void close(int fd);
+static int read(int fd, void *buffer, unsigned size);
+static int filesize(int fd);
 
 /* System call.
  *
@@ -63,7 +66,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 	
 		case SYS_WRITE:
-			/* code */
 			f->R.rax = write((int)f->R.rdi, (const void *)f->R.rsi, (unsigned int)f->R.rdx);
 			break;
 
@@ -83,7 +85,16 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			close((int) f -> R.rdi);
 			break;
 
+		case SYS_READ:
+			f -> R.rax = read((int) f -> R.rdi, (void *) f -> R.rsi, (unsigned) f -> R.rdx);
+			break;
+		
+		case SYS_FILESIZE:
+			f -> R.rax = filesize((int) f -> R.rdi);
+			break;
+		
 		default:
+			printf("%d", syscall_num); 
 			exit(-1);
 			break;
 	}
@@ -103,11 +114,24 @@ exit(int status){
 
 static int 
 write (int fd, const void *buffer, unsigned length){
-	if(fd == 1 || fd == 2){
+	check_valid_access(buffer);
+	struct thread *cur = thread_current();
+	if(fd <= 0 || fd >= MAX_FD){
+		return -1;
+	}
+
+	if(fd == 1){
 		putbuf(buffer, length);
 		return length;
 	}
-	return -1;
+	struct file *cur_file = cur -> fd_table[fd];
+	if(cur_file == NULL) return -1;
+
+	lock_acquire(&filesys_lock);
+	off_t actual_byte_written = file_write(cur_file, buffer, length);
+	lock_release(&filesys_lock);
+
+	return (int) actual_byte_written;
 };
 
 static bool 
@@ -174,7 +198,8 @@ check_valid_access(void *uaddr){
 	if(!is_user_vaddr(uaddr)) exit(-1);
 }
 
-static void close(int fd){
+static void 
+close(int fd){
 	if(fd < 2 || fd >= MAX_FD){
 		return;
 	}
@@ -184,5 +209,49 @@ static void close(int fd){
 		file_close(cur -> fd_table[fd]);
 		lock_release(&filesys_lock);
 		cur -> fd_table[fd] = NULL;
+	}
+}
+
+static int
+filesize(int fd){
+	struct thread *cur = thread_current();
+	if(fd < 2 || fd >= MAX_FD || cur -> fd_table[fd] == NULL){
+		return -1;
+	}
+	struct file *cur_file = cur -> fd_table[fd];
+
+	lock_acquire(&filesys_lock);
+	off_t file_len = file_length(cur_file);
+	lock_release(&filesys_lock);
+	return (int) file_len;
+}
+
+static int 
+read(int fd, void *buffer, unsigned size){
+	check_valid_access(buffer);
+	struct thread *cur = thread_current();
+	if(fd < 0 || fd == 1 || fd >= MAX_FD ){
+		return -1;
+	}
+
+	if(fd == 0){	
+		unsigned rd_size = 0;
+		uint8_t *buf = (uint8_t *) buffer;
+
+		while(rd_size < size){
+			uint8_t ch = input_getc();
+			buf[rd_size] = ch;
+			rd_size++;
+		}
+		return rd_size;
+	} else {
+		struct file *cur_file = cur -> fd_table[fd]; 
+		if(cur_file == NULL){
+			return -1;
+		}
+		lock_acquire(&filesys_lock);
+		off_t bytes_read = file_read(cur_file, buffer, size);
+		lock_release(&filesys_lock);
+		return bytes_read;
 	}
 }

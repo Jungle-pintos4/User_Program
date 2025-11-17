@@ -32,6 +32,8 @@ static void __do_fork (void *);
 static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 
 /* General process initializer for initd and other process. */
+/* 프로세스가 생성될 때 (initd, fork 시) 호출될 수 있으며, 
+프로세스마다 독립적인 존재해야 할 자원을 설정하는 것이다. 예시 -> 파일 디스크립터 */
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
@@ -50,6 +52,8 @@ process_init (void) {
  * before process_create_initd() returns. Returns the initd's
  * thread id, or TID_ERROR if the thread cannot be created.
  * Notice that THIS SHOULD BE CALLED ONCE. */
+
+/* 첫 번째 유저 프로세스를 실행하기 위한 초기 커널 쓰레드 생성*/
 tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
@@ -61,6 +65,7 @@ process_create_initd (const char *file_name) {
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
+	/* initd 함수에 전달할 인수 */
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	// 프로그램 이름 추출용 복사본
@@ -74,14 +79,17 @@ process_create_initd (const char *file_name) {
 	char *program, *save_ptr;
 	program = strtok_r(fn_copy2, " ", &save_ptr);
 
-	/* Create a new thread to execute FILE_NAME. */
+
+	/* 새로운 User 프로그램을 실행할 쓰레드 생성 (아직은 커널 쓰레드)*/
 	tid = thread_create (program, PRI_DEFAULT, initd, fn_copy);
 
 	// 파싱용 복사본은 바로 해제
 	palloc_free_page(fn_copy2);
 
 	if (tid == TID_ERROR)
+		/* 생성 실패 시 바로 자원 반납*/
 		palloc_free_page (fn_copy);
+	/* process_wait(메인 쓰레드)는 해당 쓰레드가 종료될 때(유저 프로세스)까지 wait함 */
 	return tid;
 }
 
@@ -405,7 +413,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		argv[argc++] = token;
 	}
 
-	/* Allocate and activate page directory. */
+	/* 페이지 테이블의 최상위 목차를 만들기(커널 주소 공간 매핑, 유저 공간은 비어 있음) */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
 		goto done;
@@ -418,10 +426,10 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	/* Read and verify executable header. */
+	/* ELF 헤더 검증 -> ELF 헤더를 ehdr 구조체에 저장   */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
-			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
-			|| ehdr.e_type != 2
+			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7) /* ELF 파일이 맞는지 매직 넘버 확인*/
+			|| ehdr.e_type != 2						
 			|| ehdr.e_machine != 0x3E // amd64
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
@@ -430,8 +438,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	/* Read program headers. */
+	/* Read program headers. -> 프로그램 헤더 테이블 읽어서 각 세그먼트마다 메모리 적재  */
 	file_ofs = ehdr.e_phoff;
+	/* 프로그램 헤더의 개수 */
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		struct Phdr phdr;
 
@@ -473,6 +482,9 @@ load (const char *file_name, struct intr_frame *if_) {
 						read_bytes = 0;
 						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
 					}
+					/* 세그먼트 단위로 가상 메모리에 적재 */
+					/* file: 실행 파일을 다룰 핸들, ofs: 목적 파일의 어디서부터 읽을지(offset), upage: 가상 메모리에 어디에 올릴지*/
+					/* read_bytes: 파일에서 몇 바이트를 읽을 지, zero_bytes: 나머지 부분을 0으로 채울 바이트 수, writeable: 이 메모리 영역에 쓰기 가능한지 여부  */
 					if (!load_segment (file, file_page, (void *) mem_page,
 								read_bytes, zero_bytes, writable))
 						goto done;
@@ -483,7 +495,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
-	/* Set up stack. */
+	/* 유저 스택 생성 및 설정 */
 	if (!setup_stack (if_))
 		goto done;
 
@@ -518,6 +530,7 @@ void argument_passing(char *argv[], int argc, struct intr_frame *frame){
 		frame->rsp -= len;
 		// 실제 데이터 삽입
 		memcpy(frame->rsp, argv[i], len);
+		/* 인자 문자열 삽입 후 argv[argc - 1] ~ argv[0] 삽입을 위해 백업*/
         arg_addresses[i] = frame->rsp;
 	}
 
@@ -537,7 +550,6 @@ void argument_passing(char *argv[], int argc, struct intr_frame *frame){
     }
 
     // return address (fake) 
-	// argv[argc] = NULL
     frame->rsp -= 8;
     *(uint64_t *)frame->rsp = 0;
 
@@ -626,22 +638,24 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		/* 이 페이지에 채워야 할 바이트 수를 계산한다.*/
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* Get a page of memory. */
+		/* 데이터를 담을 물리 메모리 페이지를 할당받는다.*/
 		uint8_t *kpage = palloc_get_page (PAL_USER);
 		if (kpage == NULL)
 			return false;
 
-		/* Load this page. */
+		/* 할당받은 페이지에 파일 내용을 읽어 채운다. */
 		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
 			palloc_free_page (kpage);
 			return false;
 		}
 		memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-		/* Add the page to the process's address space. */
+		/* 물리페이지를 가상 주소와 매핑한다.(페이지 테이블에 기록한다.,)*/
 		if (!install_page (upage, kpage, writable)) {
 			printf("fail\n");
 			palloc_free_page (kpage);
@@ -661,9 +675,10 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
 	bool success = false;
-
+	/* 유저용 물리 페이지 생성 -> 0으로 초기화*/
 	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
 	if (kpage != NULL) {
+		/* 가상 주소와 물리 페이지를 매핑 (페이지 테이블에 반영)*/
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
 		if (success)
 			if_->rsp = USER_STACK;

@@ -561,10 +561,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->wait_sema, 0);
 	t->parent = NULL;
 	list_init(&t->child_list);
-	t->fd = 2;
-	for(int i = 0; i < MAX_FD; i++){
-		t -> fd_table[i] = NULL;
-	}
 #endif
 }
 

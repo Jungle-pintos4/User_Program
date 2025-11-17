@@ -167,8 +167,7 @@ paging_init (uint64_t mem_end) {
 	pml4_activate(0);
 }
 
-/* Breaks the kernel command line into words and returns them as
-   an argv-like array. */
+/* 부트로더가 커맨드 라인 인자를 읽는 함수 */
 static char **
 read_command_line (void) {
 	static char *argv[LOADER_ARGS_LEN / 2 + 1];
@@ -176,17 +175,20 @@ read_command_line (void) {
 	int argc;
 	int i;
 
+	/* 부트로더가 저장한 인자의 개수를 읽어온다. */
 	argc = *(uint32_t *) ptov (LOADER_ARG_CNT);
+	/* 부트로더가 저장한 인자 문자열의 시작 주소를 가져온다. */
 	p = ptov (LOADER_ARGS);
 	end = p + LOADER_ARGS_LEN;
+	/* 시작 주소부터 argc만큼 반복하며 argv 배열을 채운다. */
 	for (i = 0; i < argc; i++) {
 		if (p >= end)
 			PANIC ("command line arguments overflow");
 
 		argv[i] = p;
-		p += strnlen (p, end - p) + 1;
+		p += strnlen (p, end - p) + 1; /* 다음 문자열로 포인터 이동 */
 	}
-	argv[argc] = NULL;
+	argv[argc] = NULL; // argv 배열의 끝은 NULL로 표시
 
 	/* Print kernel command line. */
 	printf ("Kernel command line:");
@@ -237,6 +239,7 @@ parse_options (char **argv) {
 /* Runs the task specified in ARGV[1]. */
 static void
 run_task (char **argv) {
+	/* run 'echo x' -> 'echo x'*/
 	const char *task = argv[1];
 
 	printf ("Executing '%s':\n", task);

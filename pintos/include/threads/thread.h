@@ -31,7 +31,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* 기본 우선순위. */
 #define PRI_MAX 63                      /* 최고 우선순위. */
 /* 파일 디스크립터 최대 */
-#define MAX_FD 32
+#define MAX_FD 64
 /* 커널 스레드 또는 사용자 프로세스.
  *
  * 각 스레드 구조체는 자체 4 kB 페이지에 저장됨. 스레드 구조체
@@ -108,7 +108,7 @@ struct thread {
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
 
-	struct file *fd_table[MAX_FD]; 		// file descriptor table (one table per process)
+	struct file **fd_table; 			// file descriptor table (one table per process)
 	int fd; 							// 시작할 descriptor 번호 (0, 1은 예약되어 있음)
 #endif
 #ifdef VM
