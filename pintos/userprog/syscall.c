@@ -7,9 +7,20 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/init.h"
+#include "filesys/filesys.h"
+#include "threads/vaddr.h"
+#include "include/filesys/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+// System call handler functions
+void halt(void);
+void exit(int status);
+bool create(const char *file, unsigned initial_size);
+int write(int fd, const void *buffer, unsigned length);
+int open(const char *file);
 
 /* System call.
  *
@@ -41,6 +52,9 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
+
+	const char *file = f->R.rdi;
+
 	switch (f->R.rax)
 	{
 	case SYS_WRITE:
@@ -48,15 +62,35 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
-	case SYS_EXIT:
-		thread_current()->exit_status = f->R.rdi;
-        thread_exit();
-        break;
-		
+	case SYS_OPEN:
+		f->R.rax = open(file);
+		break;
+
 	default:
 		break;
 	}
 }
+
+int open (const char *file){
+	if (file == NULL || !is_user_vaddr(file)) {
+        exit(-1);
+    }
+	struct thread *curr = thread_current();
+	struct file *opened_file = filesys_open(file);
+
+	if (opened_file != NULL){
+		for(int i = 3; i < 64; i ++){
+			if(curr->fdt[i] == NULL){
+				curr->fdt[i] = opened_file;
+				return i;
+			}
+		}
+		file_close(opened_file);
+	}else{
+		return -1;
+	}
+	return -1;
+};
 
 int write (int fd, const void *buffer, unsigned length){
 	if(fd == 1 || fd == 2){
