@@ -61,6 +61,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		/* code */
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
+	
+	case SYS_HALT:
+		halt();
+		break;
 
 	case SYS_OPEN:
 		f->R.rax = open(file);
@@ -91,6 +95,11 @@ int open (const char *file){
 	}
 	return -1;
 };
+
+void halt (void){
+	power_off();
+};
+
 
 int write (int fd, const void *buffer, unsigned length){
 	if(fd == 1 || fd == 2){
