@@ -35,6 +35,8 @@ int open (const char *file);
 void close (int fd); 
 int read (int fd, void *buffer, unsigned length);
 int filesize (int fd);
+bool check_addr(void *addr);
+bool check_buffer(void *buffer, int length);
 
 void
 syscall_init (void) {
@@ -52,7 +54,6 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
 	switch (f->R.rax)
 	{
 	case SYS_HALT:
@@ -63,6 +64,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		int fd_to_write = (int)f->R.rdi;
 		const void *buffer_to_write = (void *)f->R.rsi;
 		unsigned length_to_write = (unsigned) f->R.rdx;
+
+		if (check_buffer(buffer_to_write, (int) length_to_write) == false) 
+			exit(-1);
 
 		f->R.rax = write(fd_to_write, buffer_to_write, length_to_write);
 		break;
@@ -77,11 +81,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		char *file_to_create = (char *)f->R.rdi;
 		unsigned initial_size = (unsigned)f->R.rsi;
 		
+		if (check_addr(file_to_create) == false)
+			exit(-1);
+
 		f->R.rax = create(file_to_create, initial_size);
 		break;
 
 	case SYS_OPEN:
 		char *file_to_open = (char *)f->R.rdi;
+
+		if (check_addr(file_to_open) == false) 
+			exit(-1);
 
 		f->R.rax = open(file_to_open);
 		break;
@@ -96,6 +106,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		int fd_to_read = (int)f->R.rdi;
 		const void *buffer_to_read = (void *)f->R.rsi;
 		unsigned length_to_read = (unsigned) f->R.rdx;
+
+		if (check_buffer(buffer_to_read, length_to_read) == false) 
+			exit(-1);
 
 		f->R.rax = read(fd_to_read, buffer_to_read, length_to_read);
 		break;
@@ -136,7 +149,6 @@ int write (int fd, const void *buffer, unsigned length) {
 	}
 
 	int writen_size = (int) file_write(target_file, buffer, (off_t) length);
-
 	return writen_size;
 };
 
@@ -225,4 +237,23 @@ int filesize (int fd) {
 	}
 
 	return (int) file_length(target_file);
+}
+
+bool check_addr(void *addr) {
+	if (!addr) return false;
+	if (is_user_vaddr(addr) == false) return false;
+	if (pml4_get_page(thread_current()->pml4, addr) == false) return false;
+	return true;
+}
+
+bool check_buffer(void *buffer, int length) {
+	for (int i = 0; i < length; i++) {
+		void *current_addr = ((char *)buffer) + i;
+
+		if (check_addr(current_addr) == false) {
+			return false;
+		}
+	}
+
+	return true;
 }
