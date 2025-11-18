@@ -149,7 +149,7 @@ page_fault (struct intr_frame *f) {
 	/* Count page faults. */
 	page_fault_cnt++;
 
-	if(f -> cs == SEL_UCSEG){
+	if(user){
 	  	thread_current() -> exit_status = -1;
 	  	thread_exit();
 	  	return;
