@@ -192,6 +192,9 @@ open(const char *file){
 	return fd;
 }
 
+/* TODO : 현재 로직은 시작 주소만 검증하기 때문에, 만약 시작 주소 + 오프셋과 같은 읽기 쓰기에서 주소 침범 문제 발생 가능	
+하단의 get_user, put_user로 로직 대체가 필요할 수 있으나, 현재까지 테스트 케이스에서 문제가 되지는 않음.
+*/
 static void 
 check_valid_access(void *uaddr){
 	struct thread *cur = thread_current();
