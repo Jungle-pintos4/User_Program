@@ -163,6 +163,9 @@ int read (int fd, void *buffer, unsigned length){
 		}
 		return length;
 	}else{
+		if(fd < 3 || fd > 64){
+			exit(-1);
+		}
 		struct file *file = curr->fdt[fd];
 			if (file == NULL) {
         		exit(-1);
@@ -187,6 +190,9 @@ int write (int fd, const void *buffer, unsigned length){
 		putbuf(buffer, length);
 		return length;
 	}else{
+		if(fd < 3 || fd > 64){
+			exit(-1);
+		}
 		struct file *file = curr->fdt[fd];
 		if (file == NULL) {
         	exit(-1);
