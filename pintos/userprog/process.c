@@ -34,6 +34,14 @@ static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+
+	int initial_size = 64;
+	current->fd_table = calloc(1, sizeof(struct file *) * initial_size);
+	current->fd_table_size += initial_size;
+
+	if (current->fd_table == NULL) {
+		printf("뭐 이러면 어떻게 하냐\n");
+	}
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -259,6 +267,15 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+
+	for (int i=0; i < curr->fd_table_size; i++) {
+		if (curr->fd_table[i] != NULL) {
+			file_close(curr->fd_table[i]);
+		}
+	}
+
+	if (curr->fd_table != NULL) 
+		free(curr->fd_table);
 
 	// Process termination message
 	printf("%s: exit(%d)\n", curr->name, curr->exit_status);

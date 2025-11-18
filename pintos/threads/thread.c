@@ -563,7 +563,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->wait_sema, 0);
 	t->parent = NULL;
 	list_init(&t->child_list);
-	memset(t->fd_table, 0, sizeof(t->fd_table));
 #endif
 }
 
