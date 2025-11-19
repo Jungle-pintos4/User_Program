@@ -338,7 +338,7 @@ process_exit (void) {
 	if(curr -> parent != NULL){
 		sema_up(&curr->wait_sema);
 		enum intr_level old_level = intr_disable();
-		thread_block();
+		thread_block(); /* 갈아엎기  */
 	}
 
 }
