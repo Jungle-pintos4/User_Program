@@ -100,6 +100,12 @@ pml4_create (void) {
 	return pml4;
 }
 
+/*
+Level 1 페이지 테이블 (PT)를 인자로 받아서, 해당 테이블의 페이지 테이블 엔트리 (PTE)들을 하나씩 검사
+PTE 중 존재하는 PTE에 대해서 아래 작업 실행 (if 문)
+시프트 연산을 수행해서, 가상 주소를 재조립 (*va = 가상 주소)
+이후에 인자로 받은 콜백 함수를 가상 주소에 대해서 실행
+*/
 static bool
 pt_for_each (uint64_t *pt, pte_for_each_func *func, void *aux,
 		unsigned pml4_index, unsigned pdp_index, unsigned pdx_index) {
@@ -228,7 +234,10 @@ pml4_get_page (uint64_t *pml4, const void *uaddr) {
  * If WRITABLE is true, the new page is read/write;
  * otherwise it is read-only.
  * Returns true if successful, false if memory allocation
- * failed. */
+ * failed. 
+ * 
+ * 유저 가상 주소 (upage)가 특정 물리 페이지 (kpage)를 가리키도록 pml4에 등록하는 함수
+ * */
 bool
 pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
 	ASSERT (pg_ofs (upage) == 0);

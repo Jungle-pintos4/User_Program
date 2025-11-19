@@ -13,6 +13,8 @@
 #include "threads/palloc.h"
 #include "devices/input.h"
 #include <string.h>
+#include "userprog/process.h"
+
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -25,6 +27,11 @@ static void check_valid_access(void *uaddr);
 static void close(int fd);
 static int read(int fd, void *buffer, unsigned size);
 static int filesize(int fd);
+static tid_t fork (const char *thread_name, struct intr_frame *f);
+static int wait (int pid);
+static int exec (const char *file);
+static void seek (int fd, unsigned position);
+
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
 static bool put_user(uint8_t *udst, uint8_t byte); 
@@ -94,6 +101,22 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		
 		case SYS_FILESIZE:
 			f -> R.rax = filesize((int) f -> R.rdi);
+			break;
+
+		case SYS_FORK:
+			f -> R.rax = fork((const char*)f -> R.rdi, f);
+			break;
+
+		case SYS_WAIT:
+			f -> R.rax = wait((int) f -> R.rdi);
+			break;
+
+		case SYS_EXEC:
+			f -> R.rax = exec((const char*) f -> R.rdi);
+			break;
+
+		case SYS_SEEK:
+			seek((int) f -> R.rdi, (unsigned int) f -> R.rsi);
 			break;
 		
 		default:
@@ -193,17 +216,6 @@ open(const char *file){
 	return fd;
 }
 
-/* TODO : 현재 로직은 시작 주소만 검증하기 때문에, 만약 시작 주소 + 오프셋과 같은 읽기 쓰기에서 주소 침범 문제 발생 가능	
-하단의 get_user, put_user로 로직 대체가 필요할 수 있으나, 현재까지 테스트 케이스에서 문제가 되지는 않음.
-*/
-static void 
-check_valid_access(void *uaddr){
-	struct thread *cur = thread_current();
-	if(uaddr == NULL) exit(-1);
-	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
-	if(!is_user_vaddr(uaddr)) exit(-1);
-}
-
 static void 
 close(int fd){
 	if(fd < 2 || fd >= MAX_FD){
@@ -260,6 +272,49 @@ read(int fd, void *buffer, unsigned size){
 		lock_release(&filesys_lock);
 		return bytes_read;
 	}
+}
+
+static tid_t fork (const char *thread_name, struct intr_frame *f) {
+	check_valid_access(thread_name);
+	return process_fork(thread_name, f);
+}
+
+static int wait (int pid) {
+	return process_wait((tid_t) pid);
+}
+
+static int exec (const char *file) {
+	check_valid_access(file);
+	return process_exec(file);
+}
+
+static void seek (int fd, unsigned position) {
+	if(fd < 0 || fd == 1 || fd >= MAX_FD ){
+		return -1;
+	}
+
+	struct thread *cur = thread_current();
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if(cur_file == NULL){
+		return -1;
+	}
+
+	lock_acquire(&filesys_lock);
+	file_seek(cur_file, (off_t) position);
+	lock_release(&filesys_lock);
+}
+
+
+/* TODO : 현재 로직은 시작 주소만 검증하기 때문에, 만약 시작 주소 + 오프셋과 같은 읽기 쓰기에서 주소 침범 문제 발생 가능	
+하단의 get_user, put_user로 로직 대체가 필요할 수 있으나, 현재까지 테스트 케이스에서 문제가 되지는 않음.
+*/
+static void 
+check_valid_access(void *uaddr){
+	struct thread *cur = thread_current();
+	if(uaddr == NULL) exit(-1);
+	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
+	if(!is_user_vaddr(uaddr)) exit(-1);
 }
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */
