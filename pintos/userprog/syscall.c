@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
 #include "devices/input.h"
+#include "userprog/process.h"
 #include <string.h>
 
 void syscall_entry (void);
@@ -25,6 +26,8 @@ static void check_valid_access(void *uaddr);
 static void close(int fd);
 static int read(int fd, void *buffer, unsigned size);
 static int filesize(int fd);
+static int wait (tid_t pid);
+static tid_t fork (const char *thread_name, struct intr_frame *if_);
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
 static bool put_user(uint8_t *udst, uint8_t byte); 
@@ -96,6 +99,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			f -> R.rax = filesize((int) f -> R.rdi);
 			break;
 		
+		case SYS_WAIT:
+			f-> R.rax = wait(f->R.rdi);
+			break;
+		
+		case SYS_FORK:
+			tid_t fork_result = fork((const char *) f->R.rdi, f);
+      		f->R.rax = fork_result;
+      		break;
+
 		default:
 			printf("%d", syscall_num); 
 			exit(-1);
@@ -261,6 +273,29 @@ read(int fd, void *buffer, unsigned size){
 		return bytes_read;
 	}
 }
+
+static
+int wait (tid_t pid){
+	tid_t result = process_wait(pid);
+	return result;
+};
+
+static tid_t
+fork (const char *thread_name, struct intr_frame *if_){
+	// 1. 먼저 NULL과 유저 주소 체크
+	if(thread_name == NULL || !is_user_vaddr(thread_name)){
+		exit(-1);
+	}
+
+	// 2. 그 다음 페이지 매핑 확인
+	if (pml4_get_page(thread_current()->pml4, thread_name) == NULL) {
+		exit(-1);
+	}
+	tid_t result = process_fork(thread_name, if_);
+    return result;
+
+}
+
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */
 // static bool check_buffer(void *buffer, int length) {
