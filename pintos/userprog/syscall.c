@@ -11,6 +11,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
+#include "userprog/process.h"
 #include "devices/input.h"
 #include <string.h>
 
@@ -27,7 +28,9 @@ static int read(int fd, void *buffer, unsigned size);
 static int filesize(int fd);
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
-static bool put_user(uint8_t *udst, uint8_t byte); 
+static bool put_user(uint8_t *udst, uint8_t byte);
+static int wait(tid_t pid);
+static tid_t fork(const char *thread_name, struct intr_frame *f);
 
 /* System call.
  *
@@ -60,7 +63,7 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	uint64_t syscall_num = f -> R.rax;
 	switch (syscall_num)
 	{	
@@ -96,8 +99,16 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			f -> R.rax = filesize((int) f -> R.rdi);
 			break;
 		
+		case SYS_WAIT:
+			f -> R.rax = wait((int) f -> R.rdi);
+			break;
+
+		case SYS_FORK:
+			f -> R.rax = fork((const char *) f -> R.rdi, f);
+			break;
+		
 		default:
-			printf("%d", syscall_num); 
+			printf("%llu", syscall_num); 
 			exit(-1);
 			break;
 	}
@@ -260,6 +271,15 @@ read(int fd, void *buffer, unsigned size){
 		lock_release(&filesys_lock);
 		return bytes_read;
 	}
+}
+
+static int wait(tid_t pid){
+	return process_wait(pid);
+}
+
+static tid_t fork(const char *thread_name, struct intr_frame *f){
+	check_valid_access(thread_name);
+	return process_fork(thread_name, f);
 }
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */

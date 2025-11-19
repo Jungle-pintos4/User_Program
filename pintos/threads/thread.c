@@ -557,9 +557,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_list = NULL;
 	list_init(&t->lock_list);
 #ifdef USERPROG
+	t->fork_success = false;
 	t->exit_status = -1;
 	sema_init(&t->wait_sema, 0);
 	t->parent = NULL;
+	t->pf = NULL;
 	list_init(&t->child_list);
 #endif
 }

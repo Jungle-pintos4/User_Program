@@ -103,7 +103,9 @@ struct thread {
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
 
 	int exit_status;                    // 종료 상태 (기본값 -1)
+	bool fork_success;					// 자식의 성공 / 실패 상태 
 	struct semaphore wait_sema;         // wait 동기화
+	struct semaphore fork_sema;			// fork 동기화
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
@@ -116,7 +118,8 @@ struct thread {
 #endif
 
 	/* thread.c가 소유함. */
-	struct intr_frame tf;               /* 전환을 위한 정보 */
+	struct intr_frame tf;               /* 전환을 위한 정보 , 문맥 전환 시 사용하기 때문에 다른 용도로 사용금지*/
+	struct intr_frame *pf;				/* 부모의 if 구조체 일 때 사용*/
 	unsigned magic;                     /* 스택 오버플로우를 감지. */
 
 	// time_sleep에서 깨어날 시간
