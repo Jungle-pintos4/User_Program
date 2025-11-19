@@ -340,7 +340,11 @@ process_exit (void) {
 	struct thread *curr = thread_current ();
 
 	// Process termination message
-	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	if (curr->pml4 != NULL) { 
+		// 유저 프로세스이면 (유저 프로세스는 pml4가 NULL이 아님)
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	}
+
 	sema_up(&curr->wait_sema);
 
 	if(curr -> fd_table != NULL){
