@@ -276,6 +276,17 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	char *save_ptr;
+	strtok_r(file_name, " ", &save_ptr);
+
+	struct file* curr_file = filesys_open(file_name);
+	if (curr_file == NULL) {
+		printf("모름");
+	}
+
+	thread_current()->executable_file = curr_file;
+	file_deny_write(curr_file);
+
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
@@ -343,6 +354,13 @@ process_exit (void) {
 		free(curr -> fd_table);
 		curr -> fd_table = NULL;
 	}
+
+	struct file *curr_file = curr->executable_file;
+	if (curr_file == NULL) {
+		printf("exit하다가 에러남 \n");
+	}
+	file_close(curr_file);
+
 	process_cleanup ();
 }
 
@@ -574,6 +592,9 @@ done:
 	/* We arrive here whether the load is successful or not. */
 	if(file != NULL){
 		file_close(file);
+		// file_name을 실행할 것이므로, file_name에 쓸 수 없게 만든다 (ROX)
+		// file_deny_write(file);
+		// printf("process.c: file_deny_write, %s \n", argv[0]);
 	}
 	if(fn_copy != NULL){
 		palloc_free_page(fn_copy);

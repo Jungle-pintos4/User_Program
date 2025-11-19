@@ -161,7 +161,7 @@ write (int fd, const void *buffer, unsigned length){
 };
 
 static bool 
-create(const char *file, unsigned initial_size){
+create(const char *file, unsigned initial_size) {
 	check_valid_access(file);
 	if(strlen(file) > 14){
 		return false;
@@ -274,21 +274,26 @@ read(int fd, void *buffer, unsigned size){
 	}
 }
 
-static tid_t fork (const char *thread_name, struct intr_frame *f) {
+static tid_t 
+fork (const char *thread_name, struct intr_frame *f) {
 	check_valid_access(thread_name);
 	return process_fork(thread_name, f);
 }
 
-static int wait (int pid) {
+static int 
+wait (int pid) {
 	return process_wait((tid_t) pid);
 }
 
-static int exec (const char *file) {
+static int 
+exec (const char *file) {
 	check_valid_access(file);
+		
 	return process_exec(file);
 }
 
-static void seek (int fd, unsigned position) {
+static void 
+seek (int fd, unsigned position) {
 	if(fd < 0 || fd == 1 || fd >= MAX_FD ){
 		return -1;
 	}

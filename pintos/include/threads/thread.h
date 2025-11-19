@@ -109,6 +109,7 @@ struct thread {
 	struct list_elem child_elem;        // 자식 리스트의 요소
 
 	struct file **fd_table; 			// file descriptor table (one table per process)
+	struct file *executable_file; 		// 현재 쓰레드가 실행 중인 파일 (쓰기 거부해야 함)
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */
