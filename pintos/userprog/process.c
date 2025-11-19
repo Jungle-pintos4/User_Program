@@ -311,11 +311,8 @@ int
 process_wait (tid_t child_tid) {
 	struct thread *curr = thread_current();
     struct thread *child = NULL;
-    struct list temp_list;
-    
-	list_init(&temp_list);
-
 	struct list_elem *target = list_begin(&curr -> child_list);
+
 	while(target != list_end(&curr -> child_list)){
 		struct thread *t = list_entry(target, struct thread, child_elem);
 		if(t -> tid == child_tid){
@@ -331,6 +328,8 @@ process_wait (tid_t child_tid) {
     }
 
 	sema_down(&child->wait_sema);
+	// printf("[부모 프로세스] %s 종료되었고,  exit_status는 %d 입니다. \n", child->name, child->exit_status);
+
     return child->exit_status;
 }
 
@@ -347,6 +346,7 @@ process_exit (void) {
 
 	sema_up(&curr->wait_sema);
 
+	// fd_table 청소
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
 			if(curr -> fd_table[i] != NULL){
@@ -359,6 +359,7 @@ process_exit (void) {
 		curr -> fd_table = NULL;
 	}
 
+	// 현재 실행 파일 닫기
 	struct file *curr_file = curr->executable_file;
 	if (curr_file != NULL) {
 		file_close(curr_file);

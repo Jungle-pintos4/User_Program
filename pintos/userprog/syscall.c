@@ -31,6 +31,7 @@ static tid_t fork (const char *thread_name, struct intr_frame *f);
 static int wait (int pid);
 static int exec (const char *file);
 static void seek (int fd, unsigned position);
+static bool remove (const char *file);
 
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
@@ -69,6 +70,7 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t syscall_num = f -> R.rax;
+
 	switch (syscall_num)
 	{	
 		case SYS_HALT:
@@ -118,9 +120,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_SEEK:
 			seek((int) f -> R.rdi, (unsigned int) f -> R.rsi);
 			break;
+
+		case SYS_REMOVE:
+			f -> R.rax = remove((const char*) f -> R.rdi);
+			break;
 		
 		default:
-			printf("%d", syscall_num); 
+			printf("존재하지 않는 SYSCALL %d \n", syscall_num); 
 			exit(-1);
 			break;
 	}
@@ -141,6 +147,7 @@ exit(int status){
 static int 
 write (int fd, const void *buffer, unsigned length){
 	check_valid_access(buffer);
+
 	struct thread *cur = thread_current();
 	if(fd <= 0 || fd >= MAX_FD){
 		return -1;
@@ -308,6 +315,12 @@ seek (int fd, unsigned position) {
 	lock_acquire(&filesys_lock);
 	file_seek(cur_file, (off_t) position);
 	lock_release(&filesys_lock);
+}
+
+static bool 
+remove (const char *file) {
+	check_valid_access(file);
+	return filesys_remove(file);
 }
 
 
