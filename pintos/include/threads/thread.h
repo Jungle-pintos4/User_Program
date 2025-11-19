@@ -104,10 +104,12 @@ struct thread {
 
 	int exit_status;                    // 종료 상태 (기본값 -1)
 	struct semaphore wait_sema;         // wait 동기화
+	struct semaphore fork_sema;         // fork 동기화
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
-
+	bool fork_success;                  // fork 성공 여부
+	struct intr_frame *parent_if;       // fork 시 부모의 interrupt frame (포인터)
 	struct file **fd_table; 			// file descriptor table (one table per process)
 #endif
 #ifdef VM
@@ -117,6 +119,7 @@ struct thread {
 
 	/* thread.c가 소유함. */
 	struct intr_frame tf;               /* 전환을 위한 정보 */
+	
 	unsigned magic;                     /* 스택 오버플로우를 감지. */
 
 	// time_sleep에서 깨어날 시간
