@@ -279,13 +279,13 @@ process_exec (void *f_name) {
 	char *save_ptr;
 	strtok_r(file_name, " ", &save_ptr);
 
+	// 파싱된 file_name으로 filesys_open을 시도
 	struct file* curr_file = filesys_open(file_name);
-	if (curr_file == NULL) {
-		printf("모름");
+	if (curr_file != NULL) {
+		// file_name이 유효한 값일 때만, executable_file 갱신 및 deny_write 설정
+		thread_current()->executable_file = curr_file;
+		file_deny_write(curr_file);
 	}
-
-	thread_current()->executable_file = curr_file;
-	file_deny_write(curr_file);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -356,10 +356,9 @@ process_exit (void) {
 	}
 
 	struct file *curr_file = curr->executable_file;
-	if (curr_file == NULL) {
-		printf("exit하다가 에러남 \n");
+	if (curr_file != NULL) {
+		file_close(curr_file);
 	}
-	file_close(curr_file);
 
 	process_cleanup ();
 }
