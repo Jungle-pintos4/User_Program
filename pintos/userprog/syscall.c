@@ -135,11 +135,6 @@ exec (const char *file){
 	return process_exec(fn_copy);
 };
 
-static int
-wait (pid_t){
-	
-};
-
 static void 
 halt(void){
 	power_off();
