@@ -103,12 +103,14 @@ struct thread {
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
 
 	int exit_status;                    // 종료 상태 (기본값 -1)
+	int child_exit_status;              // 자식의 종료 상태를 저장 (wait에서 사용)
 	struct semaphore wait_sema;         // wait 동기화
 	struct semaphore fork_sema;         // fork 동기화
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
 	bool fork_success;                  // fork 성공 여부
+	bool waited;                        // 이미 wait 되었는지 여부
 	struct intr_frame *parent_if;       // fork 시 부모의 interrupt frame (포인터)
 	struct file **fd_table; 			// file descriptor table (one table per process)
 #endif

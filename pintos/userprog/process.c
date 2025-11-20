@@ -296,9 +296,23 @@ process_wait (tid_t child_tid) {
         return -1;
     }
 
+	/* 이미 wait한 자식인지 확인 */
+	if (child->waited) {
+		return -1;
+	}
+
+	/* sema_down 전에 waited 플래그 설정하고 리스트에서 제거 (인터럽트 비활성화) */
+	enum intr_level old_level = intr_disable();
+	child->waited = true;
+	list_remove(&child->child_elem);  /* sema_down 전에 제거해야 함 */
+	intr_set_level(old_level);
+
+	/* 자식이 종료될 때까지 대기 */
 	sema_down(&child->wait_sema);
-	int exit_status = child->exit_status;
-	list_remove(&child->child_elem);
+
+	/* sema_down 이후에는 child 메모리 접근 불가 - exit_status는 parent의 child_exit_status에 저장됨 */
+	int exit_status = curr->child_exit_status;
+
     return exit_status;
 }
 
@@ -309,6 +323,12 @@ process_exit (void) {
 
 	// Process termination message
 	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
+	/* 부모에게 exit_status 전달 (parent의 메모리에 저장) */
+	if (curr->parent != NULL) {
+		curr->parent->child_exit_status = curr->exit_status;
+	}
+
 	sema_up(&curr->wait_sema);
 
 	if(curr -> fd_table != NULL){
