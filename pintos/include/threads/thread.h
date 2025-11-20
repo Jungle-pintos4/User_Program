@@ -109,7 +109,8 @@ struct thread {
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
 	struct list_elem child_elem;        // 자식 리스트의 요소
-
+	
+	struct file *execute_file;			// 실행 중인 파일
 	struct file **fd_table; 			// file descriptor table (one table per process)
 #endif
 #ifdef VM

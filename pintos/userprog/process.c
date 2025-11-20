@@ -111,28 +111,16 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_) {
 	struct thread *parent_thread = thread_current();
-	/* TODO: 복사를 해야 하나? */
 	parent_thread -> pf = if_;
 	sema_init(&parent_thread -> fork_sema, 0);
-	/* Clone current thread to new thread.*/
+	/* Clone current thread to new thread. */
 	tid_t child_id = thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
 	sema_down(&parent_thread -> fork_sema);
-	
-	struct list_elem *target = list_begin(&parent_thread -> child_list);
-	bool is_fork_success = false;
-	while(target != list_end(&parent_thread -> child_list)){
-		struct thread *t = list_entry(target, struct thread, child_elem);
-		if(t -> tid == child_id){
-			is_fork_success = t -> fork_success;
-			break;
-		}
-		target = list_next(target);
-	}
-	if(is_fork_success){
+
+	if(parent_thread -> fork_success == true || child_id == TID_ERROR){
 		return child_id;
-	} else{
-		return -1;
-	}
+	} 
+	return -1;
 }
 
 #ifndef VM
@@ -237,14 +225,14 @@ __do_fork (void *aux) {
 	
 	/* Finally, switch to the newly created process. */
 	if (succ){
-		current -> fork_success = true;
+		parent -> fork_success = true;
 		sema_up(&parent -> fork_sema);
 		do_iret (&if_);
 	}
 
 error:
 	list_remove(&current->child_elem);
-	current -> fork_success = false;
+	parent -> fork_success = false;
 	sema_up(&parent -> fork_sema);
 	thread_exit ();
 }
@@ -304,14 +292,13 @@ process_wait (tid_t child_tid) {
 		}
 		target = list_next(target);
 	}
-
     if (child == NULL) {
         return -1;
     }
 	sema_down(&child->wait_sema);
 	int status = child -> exit_status;
 	list_remove(&child -> child_elem);
-	palloc_free_page(child);
+	//palloc_free_page(child);
     return status;
 }
 
@@ -334,11 +321,12 @@ process_exit (void) {
 		curr -> fd_table = NULL;
 	}
 	process_cleanup ();
-	
+
+	/* 갈아엎기  */
 	if(curr -> parent != NULL){
 		sema_up(&curr->wait_sema);
 		enum intr_level old_level = intr_disable();
-		thread_block(); /* 갈아엎기  */
+		thread_block(); 
 	}
 
 }
@@ -347,6 +335,13 @@ process_exit (void) {
 static void
 process_cleanup (void) {
 	struct thread *curr = thread_current ();
+	if(curr -> execute_file != NULL){
+		file_allow_write(curr -> execute_file);
+		lock_acquire(&filesys_lock);
+		file_close(curr -> execute_file);
+		lock_release(&filesys_lock);
+		curr -> execute_file = NULL;
+	}
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
@@ -479,11 +474,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	lock_acquire(&filesys_lock);
 	file = filesys_open (argv[0]);
+	lock_release(&filesys_lock);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", argv[0]);
 		goto done;
 	}
+	t -> execute_file = file;
+	file_deny_write(file);
 
 	/* ELF 헤더 검증 -> ELF 헤더를 ehdr 구조체에 저장   */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -567,8 +566,9 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	if(file != NULL){
+	if(!success && file != NULL){
 		file_close(file);
+		t ->execute_file = NULL;
 	}
 	if(fn_copy != NULL){
 		palloc_free_page(fn_copy);

@@ -31,6 +31,9 @@ static int64_t get_user(const uint8_t *uadder);
 static bool put_user(uint8_t *udst, uint8_t byte);
 static int wait(tid_t pid);
 static tid_t fork(const char *thread_name, struct intr_frame *f);
+static int exec(const char *cmd_line);
+static void seek(int fd, unsigned position);
+static bool remove(const char *file);
 
 /* System call.
  *
@@ -107,6 +110,18 @@ syscall_handler (struct intr_frame *f) {
 			f -> R.rax = fork((const char *) f -> R.rdi, f);
 			break;
 		
+		case SYS_EXEC:
+			f -> R.rax = exec((const char *) f -> R.rdi);
+			break;
+
+		case SYS_SEEK:
+			seek((int) f -> R.rdi, (unsigned) f -> R.rsi);
+			break;
+
+		case SYS_REMOVE:
+			f -> R.rax = remove((const char *)f -> R.rdi);
+			break;
+
 		default:
 			printf("%llu", syscall_num); 
 			exit(-1);
@@ -139,7 +154,7 @@ write (int fd, const void *buffer, unsigned length){
 		return length;
 	}
 	struct file *cur_file = cur -> fd_table[fd];
-	if(cur_file == NULL) return -1;
+	if(cur_file == NULL || is_file_allow_write(cur_file)) return -1;
 
 	lock_acquire(&filesys_lock);
 	off_t actual_byte_written = file_write(cur_file, buffer, length);
@@ -198,7 +213,11 @@ open(const char *file){
 		}
 	}
 
-	if(fd < 0) file_close(new_file);
+	if(fd < 0) {
+		lock_acquire(&filesys_lock);
+		file_close(new_file);
+		lock_release(&filesys_lock);
+	}
 
 	palloc_free_page(fn_copy);
 	return fd;
@@ -273,6 +292,14 @@ read(int fd, void *buffer, unsigned size){
 	}
 }
 
+static int exec(const char *cmd_line){
+	check_valid_access(cmd_line);
+	char *cm_copy = palloc_get_page(PAL_ZERO);
+	if(cm_copy == NULL) return -1;
+	strlcpy(cm_copy, cmd_line, PGSIZE);
+	return process_exec(cm_copy);
+}
+
 static int wait(tid_t pid){
 	return process_wait(pid);
 }
@@ -280,6 +307,24 @@ static int wait(tid_t pid){
 static tid_t fork(const char *thread_name, struct intr_frame *f){
 	check_valid_access(thread_name);
 	return process_fork(thread_name, f);
+}
+
+static void seek(int fd, unsigned position){
+	struct thread *cur = thread_current();
+	struct file *target_file = cur -> fd_table[fd];
+	if(target_file == NULL) return;
+	lock_acquire(&filesys_lock);
+	file_seek(target_file, position);
+	lock_release(&filesys_lock);
+}
+
+static bool remove(const char *file){
+	bool result = false;
+	check_valid_access(file);
+	lock_acquire(&filesys_lock);
+	result = filesys_remove(file);
+	lock_release(&filesys_lock);
+	return result;
 }
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */
