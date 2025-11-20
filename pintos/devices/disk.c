@@ -220,7 +220,7 @@ disk_read (struct disk *d, disk_sector_t sec_no, void *buffer) {
 	issue_pio_command (c, CMD_READ_SECTOR_RETRY);
 	sema_down (&c->completion_wait);
 	if (!wait_while_busy (d))
-		PANIC ("%s: disk read failed, sector=%"PRDSNu, d->name, sec_no);
+		PANIC ("%s: disk read failed, sector=%"PRDSNu, d->name, sec_no);	
 	input_sector (c, buffer);
 	d->read_cnt++;
 	lock_release (&c->lock);

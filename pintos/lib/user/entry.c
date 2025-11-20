@@ -5,5 +5,8 @@ void _start (int argc, char *argv[]);
 
 void
 _start (int argc, char *argv[]) {
-	exit (main (argc, argv));
+	int res = main (argc, argv);
+
+	write(1, "Main returned, calling exit...\n", 30);
+	exit (res);
 }

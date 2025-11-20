@@ -210,12 +210,7 @@ thread_create (const char *name, int priority,
 
 	/* 선점 구현 */
 	thread_preemption(list_entry(list_begin(&ready_list), struct thread, elem)); 
-
-	#ifdef USERPROG
-		struct thread *curr = thread_current();
-		t->parent = curr;
-		list_push_back(&curr->child_list, &t->child_elem);
-	#endif
+	// printf("thread.c: 부모 프로세스 create_done, %d\n", tid);
 	return tid;
 }
 
@@ -287,6 +282,8 @@ thread_tid (void) {
 void
 thread_exit (void) {
 	ASSERT (!intr_context ());
+
+	printf("thread_exit, 호출이 되나?\n");
 
 #ifdef USERPROG
 	process_exit ();
@@ -533,6 +530,8 @@ static void
 kernel_thread (thread_func *function, void *aux) {
 	ASSERT (function != NULL);
 
+	// printf("thread.c: kernel thread starts\n");
+
 	intr_enable ();       /* 스케줄러는 인터럽트가 꺼진 상태로 실행됨. */
 	function (aux);       /* 스레드 함수 실행. */
 	thread_exit ();       /* function()이 반환되면 스레드를 종료. */
@@ -558,9 +557,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->lock_list);
 #ifdef USERPROG
 	t->exit_status = -1;
-	sema_init(&t->wait_sema, 0);
-	t->parent = NULL;
 	list_init(&t->child_list);
+
+	if (t->fd_table == NULL) {
+        // 에러 처리
+		printf("fd_table is NULL \n");
+    }
 #endif
 }
 

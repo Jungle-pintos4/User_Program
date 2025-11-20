@@ -98,15 +98,15 @@ struct thread {
 	struct lock *waiting_lock;			/* 현재 쓰레드가 기다리고 있는 lock */
 	struct list *waiting_list; 			/* 현재 쓰레드가 block 되어서 대기하고 있는 리스트의 위치 */
 
+	int64_t wakeup_tick;				/* time_sleep에서 깨어날 시간 */ 
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
-
-	int exit_status;                    // 종료 상태 (기본값 -1)
-	struct semaphore wait_sema;         // wait 동기화
-	struct thread *parent;              // 부모 프로세스
+	int exit_status;
+	
+	struct child_info *info;			// 자신의 정보를 담고 있는 부모와 공유하는 구조체
 	struct list child_list;             // 자식 리스트
-	struct list_elem child_elem;        // 자식 리스트의 요소
+	struct semaphore *load_sema;		// 나를 기다리고 있는 부모의 세마포어 주소
 
 	struct file **fd_table; 			// file descriptor table (one table per process)
 	struct file *executable_file; 		// 현재 쓰레드가 실행 중인 파일 (쓰기 거부해야 함)
@@ -119,9 +119,6 @@ struct thread {
 	/* thread.c가 소유함. */
 	struct intr_frame tf;               /* 전환을 위한 정보 */
 	unsigned magic;                     /* 스택 오버플로우를 감지. */
-
-	// time_sleep에서 깨어날 시간
-	int64_t wakeup_tick;
 };
 
 /* false(기본값)이면 라운드 로빈 스케줄러 사용.

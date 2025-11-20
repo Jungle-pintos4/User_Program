@@ -70,6 +70,7 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	uint64_t syscall_num = f -> R.rax;
+	// printf("syscall_num %d\n", syscall_num);
 
 	switch (syscall_num)
 	{	
@@ -139,6 +140,8 @@ halt(void){
 
 static void
 exit(int status){
+	// printf("exit 호출\n");
+
 	thread_current()-> exit_status = status;
     thread_exit();
 }
@@ -170,12 +173,20 @@ write (int fd, const void *buffer, unsigned length){
 static bool 
 create(const char *file, unsigned initial_size) {
 	check_valid_access(file);
+
+	printf("create file=%s \n", file);
+
 	if(strlen(file) > 14){
 		return false;
 	}
 
 	lock_acquire(&filesys_lock);
+	printf("starts file=%s \n", file);
+
 	bool result = filesys_create(file, initial_size);
+	printf("ends file=%s \n", file);
+
+
 	lock_release(&filesys_lock);
 	if(!result){
 		return false;
@@ -284,12 +295,20 @@ read(int fd, void *buffer, unsigned size){
 static tid_t 
 fork (const char *thread_name, struct intr_frame *f) {
 	check_valid_access(thread_name);
-	return process_fork(thread_name, f);
+
+	// printf("syscall.c: fork 시스템 콜 호출, %s\n", thread_name);
+	tid_t res = process_fork(thread_name, f);
+
+	// printf("syscall.c: fork 시스템 콜 반환, %d\n", res);
+	return res;
 }
 
 static int 
 wait (int pid) {
-	return process_wait((tid_t) pid);
+	int res = process_wait((tid_t) pid);
+	// printf("syscall.c: wait syscall 결과는 %d \n", res);
+
+	return res;
 }
 
 static int 
