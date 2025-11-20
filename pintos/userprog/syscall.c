@@ -28,9 +28,10 @@ static int read(int fd, void *buffer, unsigned size);
 static int filesize(int fd);
 static int wait (tid_t pid);
 static tid_t fork (const char *thread_name, struct intr_frame *if_);
+static int exec (const char *file);
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
-static bool put_user(uint8_t *udst, uint8_t byte); 
+static bool put_user(uint8_t *udst, uint8_t byte);
 
 /* System call.
  *
@@ -108,12 +109,36 @@ syscall_handler (struct intr_frame *f UNUSED) {
       		f->R.rax = fork_result;
       		break;
 
+		case SYS_EXEC:
+			tid_t result = exec((const char *) f->R.rdi);
+      		f->R.rax = result;
+      		break;
+
 		default:
 			printf("%d", syscall_num); 
 			exit(-1);
 			break;
 	}
 }
+
+static int
+exec (const char *file){
+	check_valid_access(file);
+	struct thread *cur = thread_current();
+
+	char *fn_copy = palloc_get_page(0);
+	if(fn_copy == NULL){
+		return -1;
+	}
+	strlcpy(fn_copy, file, PGSIZE);
+
+	return process_exec(fn_copy);
+};
+
+static int
+wait (pid_t){
+	
+};
 
 static void 
 halt(void){
