@@ -459,6 +459,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	if (t->close_file != NULL) {
+    	file_close(t->close_file);
+    	t->close_file = NULL;
+  	}
+
 	// 일단 file_name이 들어오면 copy해서 parsing해보자
 	// palloc으로 file name이 들어가는 single page 하나 생성
 	char *fn_copy = palloc_get_page(0);
@@ -495,7 +500,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* ELF 헤더 검증 -> ELF 헤더를 ehdr 구조체에 저장   */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7) /* ELF 파일이 맞는지 매직 넘버 확인*/
-			|| ehdr.e_type != 2						
+			|| ehdr.e_type != 2
 			|| ehdr.e_machine != 0x3E // amd64
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
@@ -577,9 +582,12 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	if(file != NULL){
-		// file_close(file);
-		file_deny_write(file);
-		thread_current()->close_file = file;
+		if(success){
+			file_deny_write(file);
+			thread_current()->close_file = file;
+		}else{
+			file_close(file);
+		}
 	}
 	if(fn_copy != NULL){
 		palloc_free_page(fn_copy);

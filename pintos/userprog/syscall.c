@@ -29,6 +29,7 @@ static int filesize(int fd);
 static int wait (tid_t pid);
 static tid_t fork (const char *thread_name, struct intr_frame *if_);
 static int exec (const char *file);
+static void seek (int fd, unsigned position);
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
 static bool put_user(uint8_t *udst, uint8_t byte);
@@ -114,12 +115,30 @@ syscall_handler (struct intr_frame *f UNUSED) {
       		f->R.rax = result;
       		break;
 
+		case SYS_SEEK:
+			seek((int)f->R.rdi, (unsigned int)f->R.rsi);
+			break;
+
+		case SYS_REMOVE:
+
 		default:
 			printf("%d", syscall_num); 
 			exit(-1);
 			break;
 	}
 }
+static void
+seek (int fd, unsigned position){
+	struct thread *cur = thread_current();
+	if(fd <= 1 || fd >= MAX_FD){
+		return;
+	}
+
+	struct file *cur_file = cur -> fd_table[fd];
+	if(cur_file == NULL) return;
+	
+	file_seek(cur_file, position);
+};
 
 static int
 exec (const char *file){
@@ -132,7 +151,9 @@ exec (const char *file){
 	}
 	strlcpy(fn_copy, file, PGSIZE);
 
-	return process_exec(fn_copy);
+	int result = process_exec(fn_copy);
+
+	return result;
 };
 
 static void 
