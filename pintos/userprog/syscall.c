@@ -200,7 +200,6 @@ open(const char *file){
 	struct file *new_file = filesys_open(fn_copy);
 	lock_release(&filesys_lock);
 
-
 	if(!new_file){
 		palloc_free_page(fn_copy);
 		return -1;
@@ -331,8 +330,8 @@ static void
 check_valid_access(void *uaddr){
 	struct thread *cur = thread_current();
 	if(uaddr == NULL) exit(-1);
-	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
 	if(!is_user_vaddr(uaddr)) exit(-1);
+	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
 }
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */

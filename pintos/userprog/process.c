@@ -65,10 +65,10 @@ static void
 process_init (void) {
 	struct thread *current = thread_current ();
 	current -> fd_table = malloc(sizeof (struct file *) * MAX_FD);
-	if(current -> fd_table == NULL){
+	if (current -> fd_table == NULL) {
 		PANIC("fd_table allocation failed");
 	}
-	for(int i = 0; i < MAX_FD; i++){
+	for (int i = 0; i < MAX_FD; i++) {
 		current -> fd_table[i] = NULL;
 	}
 }
@@ -88,31 +88,29 @@ process_create_initd (const char *file_name) {
 
 	struct child_info *child_info = malloc(sizeof(struct child_info));
 	if (child_info == NULL)
-		return TID_ERROR;
+		goto error;
 
 	sema_init(&(child_info->wait_sema), 0);
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	struct init_args *init_args = malloc(sizeof(struct init_args));
-	if (init_args == NULL)
-		return TID_ERROR;
+	if (init_args == NULL) 
+		goto error;
 
 	sema_init(&(init_args->init_sema), 0);
 	init_args->child = child_info;
 
 	init_args->fn_copy = malloc(strlen(file_name) + 1);
-	if (init_args->fn_copy == NULL)
-		return TID_ERROR;
+	if (init_args->fn_copy == NULL) 
+		goto error;
 
 	strlcpy(init_args->fn_copy, file_name, strlen(file_name) + 1);
 	
 	// 프로그램 이름 추출용 복사본
 	fn_copy2 = malloc(strlen(file_name) + 1);
-	if (fn_copy2 == NULL) {
-		free(fn_copy);
-		return TID_ERROR;
-	}
+	if (fn_copy2 == NULL) 
+		goto error;
 	strlcpy (fn_copy2, file_name, strlen(file_name) + 1);
 
 	char *program, *save_ptr;
@@ -121,23 +119,26 @@ process_create_initd (const char *file_name) {
 	/* 새로운 User 프로그램을 실행할 쓰레드 생성 (아직은 커널 쓰레드)*/
 	tid = thread_create (program, PRI_DEFAULT, initd, init_args);
 	
-	if (tid == TID_ERROR) {
-		/* 생성 실패 시 바로 자원 반납*/
-		free(init_args->fn_copy);
-		free(init_args);
-		free(fn_copy2); 
-		return -1;
-	}
+	if (tid == TID_ERROR) 
+		goto error;
 
+	// 성공적으로 쓰레드가 생성
 	sema_down(&(init_args->init_sema));
 
 	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 자식 추가 
 	free(init_args->fn_copy);
-	free (init_args);
+	free(init_args);
 	free(fn_copy2); 
 
-	/* process_wait(메인 쓰레드)는 해당 쓰레드가 종료될 때(유저 프로세스)까지 wait함 */
 	return tid;
+
+error:
+	if (init_args->fn_copy != NULL) free(init_args->fn_copy);
+	if (init_args != NULL) free(init_args);
+	if (fn_copy2 != NULL) free(fn_copy2);
+	if (child_info != NULL) free(child_info);
+
+	return TID_ERROR;
 }
 
 /* A thread function that launches first user process. */
@@ -164,32 +165,42 @@ tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
 	struct child_info *child_info = malloc(sizeof(struct child_info));
-	if (!child_info) {
-		printf("errors while executing process_fork, temp \n");
-		return TID_ERROR;
-	}
+	if (child_info == NULL) 
+		goto error;
 
 	struct fork_args *args = malloc(sizeof(struct fork_args));
-	if (!args) {
-		printf("errors while executing process_fork, temp \n");
-		return TID_ERROR;
-	}
+	if (args == NULL)
+		goto error;
 
 	sema_init(&(child_info->wait_sema), 0);
-	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 추가
 		
+	// args 값 초기화
 	args->curr = thread_current();
 	args->f = if_;
 	sema_init(&(args->fork_sema), 0);
 	args->child = child_info;
 
 	tid_t result = thread_create (name, PRI_DEFAULT, __do_fork, args);
+	if (result == TID_ERROR) 
+		goto error;	
+		
 	sema_down(&args->fork_sema);
 
+	if (child_info->exit_status == -1) {
+		goto error;
+	}
+
+	// fork 성공
 	free(args);
 	args = NULL;
+	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 추가
 
 	return result;
+
+error:
+	if (args != NULL) free(args);
+	if (child_info != NULL) free(child_info);
+	return TID_ERROR;
 }
 
 #ifndef VM
@@ -284,16 +295,12 @@ __do_fork (void *aux) {
 		
 #endif
 	process_init (); // 여기서 먼저 fd_table 세팅하고
-
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
 	
-	for(int i = 0; i < MAX_FD; i++){
+	for (int i=0; i < MAX_FD; i++) {
 		if (parent->fd_table[i] != NULL) {
 			struct file *new_file = file_duplicate(parent->fd_table[i]);
+			if (new_file == NULL)
+				goto error;
 			current->fd_table[i] = new_file;
 		}
 	}
@@ -312,6 +319,13 @@ __do_fork (void *aux) {
 	}
 
 error:
+	my_info->tid = current->tid;
+	my_info->exit_status = -1;
+	my_info->ref_count = 0;
+
+	current->exit_status = -1;
+	current->my_info = my_info;
+
 	sema_up(fork_sema);
 	thread_exit ();
 }
@@ -320,9 +334,10 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	char *file_name = palloc_get_page(0);
-	strlcpy(file_name, f_name, PGSIZE);
+	struct thread *curr = thread_current();
 	bool success;
+	char *file_name = malloc(strlen(f_name)+1);
+	strlcpy(file_name, f_name, strlen(f_name)+1);
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -339,23 +354,29 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if);
 
 	// 파싱된 file_name으로 filesys_open을 시도
-	char *save_ptr;
-	strtok_r(file_name, " ", &save_ptr);
+	// char *save_ptr;
+	// strtok_r(file_name, " ", &save_ptr);
 
-	struct file* curr_file = filesys_open(file_name);
-	if (curr_file != NULL) {
-		// file_name이 유효한 값일 때만, executable_file 갱신 및 deny_write 설정
-		thread_current()->executable_file = curr_file;
-		file_deny_write(curr_file);
-	}
+	// struct file* curr_file = filesys_open(file_name);
+	// if (curr_file != NULL) {
+	// 	// file_name이 유효한 값일 때만, executable_file 갱신 및 deny_write 설정
+	// 	thread_current()->executable_file = curr_file;
+	// 	file_deny_write(curr_file);
+	// }
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success) 
+	free(file_name);
+	if (!success) {
+		if (curr->load_sema != NULL) {
+			struct semaphore *tmp_sema = curr->load_sema;
+			curr->load_sema = NULL;
+			sema_up(tmp_sema);
+		}
+
 		return -1;
+	}
 
 	/* 성공했으므로, sema_up 시키고 child_info 구조체 초기화 */
-	struct thread *curr = thread_current();
 	curr->my_info->tid = curr->tid;
 	curr->my_info->exit_status = 0;
 	curr->my_info->ref_count = 2;
@@ -410,7 +431,6 @@ process_wait (tid_t child_tid) {
 
 	// 참조하는 프로세스가 없으면 해제해주기
 	if (child_info->ref_count == 0) {
-		// palloc_free_page(child_info);
 		free(child_info);
 		child_info = NULL;
 	}
@@ -430,29 +450,32 @@ process_exit (void) {
 	}
 
 	// fd_table 청소
-	if(curr -> fd_table != NULL){
-		for(int i = 0; i < MAX_FD; i++){
-			if(curr -> fd_table[i] != NULL){
+	if (curr->fd_table != NULL) {
+		for (int i = 0; i < MAX_FD; i++) {
+			if (curr->fd_table[i] != NULL) {
 				lock_acquire(&filesys_lock);
-				file_close(curr -> fd_table[i]);
+				file_close(curr->fd_table[i]);
 				lock_release(&filesys_lock);
+				curr->fd_table[i] = NULL;
 			}
 		}
-		free(curr -> fd_table);
-		curr -> fd_table = NULL;
+
+		free(curr->fd_table);
+		curr->fd_table = NULL;
 	}
 
 	// 현재 실행 파일 닫기
-	struct file *curr_file = curr->executable_file;
-	if (curr_file != NULL) {
-		file_close(curr_file);
+	if (curr->executable_file != NULL) {
+		file_close(curr->executable_file);
+		curr->executable_file = NULL;
 	}
 
 	// child_info 값 갱신한 뒤에, sema_up
-	curr->my_info->exit_status = curr->exit_status;
-	curr->my_info->ref_count--;
-
-	sema_up(&(curr->my_info->wait_sema));
+	if (curr->my_info != NULL) {
+		curr->my_info->exit_status = curr->exit_status;
+		curr->my_info->ref_count--;
+		sema_up(&(curr->my_info->wait_sema));
+	}
 
 	process_cleanup ();
 }
@@ -568,13 +591,12 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	// 일단 file_name이 들어오면 copy해서 parsing해보자
 	// palloc으로 file name이 들어가는 single page 하나 생성
-	char *fn_copy = palloc_get_page(0);
-
+	char *fn_copy = malloc(strlen(file_name) + 1);
 	if (fn_copy == NULL)
-		return false;
+		goto done;
 
 	// pintos는 보안 이슈로 strcpy 사용 불가
-	strlcpy(fn_copy, file_name, PGSIZE);
+	strlcpy(fn_copy, file_name, strlen(file_name) + 1);
 
 	char *argv[128];
 	int argc = 0;
@@ -588,8 +610,10 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* 페이지 테이블의 최상위 목차를 만들기(커널 주소 공간 매핑, 유저 공간은 비어 있음) */
 	t->pml4 = pml4_create ();
-	if (t->pml4 == NULL)
+	if (t->pml4 == NULL) {
+		printf("pml4_create failed \n");
 		goto done;
+	}
 	process_activate (thread_current ());
 
 	/* Open executable file. */
@@ -680,18 +704,19 @@ load (const char *file_name, struct intr_frame *if_) {
 	argument_passing(argv, argc, if_);
 
 	success = true;
+	file_deny_write(file);
+	t->executable_file = file;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	if(file != NULL){
+	if (success == false && file != NULL) {
 		file_close(file);
-		// file_name을 실행할 것이므로, file_name에 쓸 수 없게 만든다 (ROX)
-		// file_deny_write(file);
-		// printf("process.c: file_deny_write, %s \n", argv[0]);
 	}
-	if(fn_copy != NULL){
-		palloc_free_page(fn_copy);
+
+	if (fn_copy != NULL) {
+		free(fn_copy);
 	}
+
 	return success;
 }
 
