@@ -191,9 +191,9 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	}
 
 	// fork 성공
+	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 추가
 	free(args);
 	args = NULL;
-	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 추가
 
 	return result;
 
@@ -407,17 +407,16 @@ int
 process_wait (tid_t child_tid) {
 	struct thread *curr = thread_current();
 	struct child_info *child_info = NULL;
-	struct list_elem *target = list_begin(&curr -> child_list);
+	struct list_elem *e;
 
-	while(target != list_end(&curr -> child_list)){
-		child_info = list_entry(target, struct child_info, elem);
+	for (e = list_begin(&curr -> child_list); e != list_end(&curr->child_list); e = list_next(e)) {
+		struct child_info *tmp = list_entry(e, struct child_info, elem);
 
-		if(child_info->tid == child_tid){
+		if (tmp->tid == child_tid) {
+			child_info = tmp;
 			break;
 		}
-		target = list_next(target);
 	}
-
 
     if (child_info == NULL) {
         return -1;
