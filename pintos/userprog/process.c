@@ -310,8 +310,11 @@ process_wait (tid_t child_tid) {
 	/* 자식이 종료될 때까지 대기 */
 	sema_down(&child->wait_sema);
 
-	/* sema_down 이후에는 child 메모리 접근 불가 - exit_status는 parent의 child_exit_status에 저장됨 */
-	int exit_status = curr->child_exit_status;
+	/* 자식의 exit_status 읽기 (자식은 exit_sema를 기다리며 아직 소멸 안됨) */
+	int exit_status = child->exit_status;
+
+	/* 자식에게 소멸 허용 신호 */
+	sema_up(&child->exit_sema);
 
     return exit_status;
 }
@@ -329,7 +332,19 @@ process_exit (void) {
 		curr->parent->child_exit_status = curr->exit_status;
 	}
 
+	/* 실행 파일 먼저 닫기 (deny_write 해제) */
+	if(curr -> close_file != NULL){
+		file_close(curr -> close_file);
+		curr -> close_file = NULL;
+	}
+
+	/* 부모에게 종료를 알림 */
 	sema_up(&curr->wait_sema);
+
+	/* 부모가 exit_status를 읽을 때까지 대기 (부모가 없으면 바로 진행) */
+	if (curr->parent != NULL) {
+		sema_down(&curr->exit_sema);
+	}
 
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
@@ -341,10 +356,6 @@ process_exit (void) {
 		}
 		free(curr -> fd_table);
 		curr -> fd_table = NULL;
-	}
-
-	if(curr -> close_file != NULL){
-		file_close(curr -> close_file);
 	}
 
 	process_cleanup ();

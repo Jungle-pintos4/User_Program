@@ -104,7 +104,8 @@ struct thread {
 
 	int exit_status;                    // 종료 상태 (기본값 -1)
 	int child_exit_status;              // 자식의 종료 상태를 저장 (wait에서 사용)
-	struct semaphore wait_sema;         // wait 동기화
+	struct semaphore wait_sema;         // wait 동기화: 자식이 종료를 알림
+	struct semaphore exit_sema;         // exit 동기화: 부모가 exit_status 읽은 후 자식 소멸 허용
 	struct semaphore fork_sema;         // fork 동기화
 	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
