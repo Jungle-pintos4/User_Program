@@ -31,11 +31,31 @@ static void __do_fork (void *);
 
 static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 
+/*
+자식 프로세스에게 전달할 구조체,
+해당 구조체를 참조하는 프로세스의 개수가 0이 될 때 free된다.
+*/
+struct child_info {
+	tid_t tid; 						// 자식 프로세스의 tid 값
+	int exit_status;				// 자식 프로세스의 종료 상태
+	struct semaphore wait_sema; 	// 자식 프로세스가 종료됨을 부모에게 알리기 위한 프로세스 (process_wait에서 사용)
+	struct list_elem elem;			// 부모의 child_list에 추가될 elem
+	int ref_count;					// 현재 구조체가 참조되고 있는 횟수
+};
+
 // fork할 때 인자값으로 전달하는 struct 구조 선언
-struct args {
+struct fork_args {
 	struct thread *curr;
 	struct intr_frame *f;
-	struct semaphore create_sema;
+	struct semaphore fork_sema;
+	struct child_info *child;
+};
+
+// process_create_initd할 때 인자값으로 전달하는 struct 구조
+struct init_args {
+	struct semaphore init_sema; // process_create_initd할 때 사용하는 sema
+	struct child_info *child;	// fjdasklf
+	char *fn_copy;				// 인자값으로 전달할 파일 명 (실행 인자 포함)
 };
 
 /* General process initializer for initd and other process. */
@@ -66,14 +86,22 @@ process_create_initd (const char *file_name) {
 	char *fn_copy2;
 	tid_t tid;
 
+	struct child_info *child_info = palloc_get_page(PAL_ZERO);
+	if (child_info == NULL)
+		return TID_ERROR;
+
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	struct init_args *init_args = palloc_get_page(PAL_ZERO);
+	if (init_args == NULL)
 		return TID_ERROR;
-	/* initd 함수에 전달할 인수 */
-	strlcpy (fn_copy, file_name, PGSIZE);
 
+	sema_init(&(init_args->init_sema), 0);
+	init_args->child = child_info;
+
+	init_args->fn_copy = (void *)init_args + sizeof(struct init_args); // 포인터 뒤로 이동시켜서 뒤의 주소를 fn_copy에 연결
+	strlcpy(init_args->fn_copy, file_name, PGSIZE - sizeof(struct init_args));
+	
 	// 프로그램 이름 추출용 복사본
 	fn_copy2 = palloc_get_page (0);
 	if (fn_copy2 == NULL) {
@@ -85,26 +113,36 @@ process_create_initd (const char *file_name) {
 	char *program, *save_ptr;
 	program = strtok_r(fn_copy2, " ", &save_ptr);
 
-
 	/* 새로운 User 프로그램을 실행할 쓰레드 생성 (아직은 커널 쓰레드)*/
-	tid = thread_create (program, PRI_DEFAULT, initd, fn_copy);
-
-	// 파싱용 복사본은 바로 해제
-	palloc_free_page(fn_copy2);
-
-	if (tid == TID_ERROR)
+	tid = thread_create (program, PRI_DEFAULT, initd, init_args);
+	
+	if (tid == TID_ERROR) {
 		/* 생성 실패 시 바로 자원 반납*/
-		palloc_free_page (fn_copy);
+		palloc_free_page (init_args);
+		palloc_free_page(fn_copy2); 
+		return -1;
+	}
+
+	sema_down(&(init_args->init_sema));
+
+	list_push_front(&(thread_current()->child_list), &(init_args->child->elem)); // 부모의 child_list에 자식 추가 
+	palloc_free_page (init_args);
+	palloc_free_page(fn_copy2); 
+
 	/* process_wait(메인 쓰레드)는 해당 쓰레드가 종료될 때(유저 프로세스)까지 wait함 */
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
-initd (void *f_name) {
+initd (void *args) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
+	struct init_args *args_ptr = (struct init_args *) args;
+	thread_current()->load_sema = &(args_ptr->init_sema);
+	thread_current()->my_info = args_ptr->child;
+	char *f_name = args_ptr->fn_copy;
 
 	process_init ();
 
@@ -118,18 +156,28 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	struct args *args = malloc(sizeof(struct args));
+	struct child_info *child_info = malloc(sizeof(struct child_info));
+	if (!child_info) {
+		printf("errors while executing process_fork, temp \n");
+		return TID_ERROR;
+	}
+
+	struct fork_args *args = malloc(sizeof(struct fork_args));
 	if (!args) {
 		printf("errors while executing process_fork, temp \n");
 		return TID_ERROR;
 	}
+
+	sema_init(&(child_info->wait_sema), 0);
+	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 추가
 		
 	args->curr = thread_current();
 	args->f = if_;
-	sema_init(&(args->create_sema), 0);
+	sema_init(&(args->fork_sema), 0);
+	args->child = child_info;
 
 	tid_t result = thread_create (name, PRI_DEFAULT, __do_fork, args);
-	sema_down(&args->create_sema);
+	sema_down(&args->fork_sema);
 
 	free(args);
 	args = NULL;
@@ -198,14 +246,15 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void
 __do_fork (void *aux) {
-	struct args *args_ptr = (struct args *) aux;
-	struct intr_frame if_;
+	struct fork_args *args_ptr = (struct fork_args *) aux;
 	struct thread *parent = args_ptr->curr;
-	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if = args_ptr->f;
+	struct semaphore *fork_sema = &(args_ptr->fork_sema);
+	struct child_info *my_info = args_ptr->child;
+
+	struct intr_frame if_;
+	struct thread *current = thread_current ();
 	bool succ = true;
-	struct semaphore *create_sema = &(args_ptr->create_sema);
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
@@ -245,12 +294,18 @@ __do_fork (void *aux) {
 	/* Finally, switch to the newly created process. */
 	if (succ) {
 		if_.R.rax = 0;
-		sema_up(create_sema);
+
+		my_info->tid = current->tid;
+		my_info->exit_status = 0;
+		my_info->ref_count = 2;
+		current->my_info = my_info;
+
+		sema_up(fork_sema);
 		do_iret (&if_);
 	}
 
 error:
-	sema_up(create_sema);
+	sema_up(fork_sema);
 	thread_exit ();
 }
 
@@ -276,10 +331,10 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	// 파싱된 file_name으로 filesys_open을 시도
 	char *save_ptr;
 	strtok_r(file_name, " ", &save_ptr);
 
-	// 파싱된 file_name으로 filesys_open을 시도
 	struct file* curr_file = filesys_open(file_name);
 	if (curr_file != NULL) {
 		// file_name이 유효한 값일 때만, executable_file 갱신 및 deny_write 설정
@@ -289,9 +344,23 @@ process_exec (void *f_name) {
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
-	if (!success)
+	if (!success) 
 		return -1;
 
+	/* 성공했으므로, sema_up 시키고 child_info 구조체 초기화 */
+	struct thread *curr = thread_current();
+	curr->my_info->tid = curr->tid;
+	curr->my_info->exit_status = 0;
+	sema_init(&(curr->my_info->wait_sema), 0);
+	curr->my_info->ref_count = 2;
+
+	// 기다리는 semaphore가 있으면, up시키기
+	if (curr->load_sema != NULL) {
+		struct semaphore *tmp_sema = curr->load_sema;
+		curr->load_sema = NULL;
+		sema_up(tmp_sema);
+	}
+	
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -344,8 +413,6 @@ process_exit (void) {
 		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 	}
 
-	sema_up(&curr->wait_sema);
-
 	// fd_table 청소
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
@@ -364,6 +431,10 @@ process_exit (void) {
 	if (curr_file != NULL) {
 		file_close(curr_file);
 	}
+
+	curr->my_info->exit_status = curr->exit_status;
+	curr->my_info->ref_count--;
+	sema_up(&curr->wait_sema);
 
 	process_cleanup ();
 }

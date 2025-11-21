@@ -93,6 +93,9 @@ struct thread {
 	/* thread.c와 synch.c가 공유함. */
 	struct list_elem elem;              /* 리스트 요소. */
 
+	// time_sleep에서 깨어날 시간
+	int64_t wakeup_tick;
+
 	struct list lock_list; 				/* 현재 쓰레드가 보유하고 있는 락 리스트 */
 	int original_priority; 	 			/* 쓰레드의 원래 우선순위 (백업용으로 저장, 수정 X) */
 	struct lock *waiting_lock;			/* 현재 쓰레드가 기다리고 있는 lock */
@@ -110,6 +113,9 @@ struct thread {
 
 	struct file **fd_table; 			// file descriptor table (one table per process)
 	struct file *executable_file; 		// 현재 쓰레드가 실행 중인 파일 (쓰기 거부해야 함)
+
+	struct semaphore *load_sema;		// 현재 쓰레드를 기다리고 있는 sema (임시)
+	struct child_info *my_info;			// 부모와 공유하는 구조체 
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */
@@ -119,9 +125,6 @@ struct thread {
 	/* thread.c가 소유함. */
 	struct intr_frame tf;               /* 전환을 위한 정보 */
 	unsigned magic;                     /* 스택 오버플로우를 감지. */
-
-	// time_sleep에서 깨어날 시간
-	int64_t wakeup_tick;
 };
 
 /* false(기본값)이면 라운드 로빈 스케줄러 사용.
