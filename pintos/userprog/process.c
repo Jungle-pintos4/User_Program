@@ -325,7 +325,10 @@ process_exit (void) {
 	struct thread *curr = thread_current ();
 
 	// Process termination message
-	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	// kernal thread에서는 pml4 주소 안씀요.
+	if (curr -> pml4 != NULL){
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	}
 
 	/* 부모에게 exit_status 전달 (parent의 메모리에 저장) */
 	if (curr->parent != NULL) {
