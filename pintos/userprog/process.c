@@ -86,29 +86,34 @@ process_create_initd (const char *file_name) {
 	char *fn_copy2;
 	tid_t tid;
 
-	struct child_info *child_info = palloc_get_page(PAL_ZERO);
+	struct child_info *child_info = malloc(sizeof(struct child_info));
 	if (child_info == NULL)
 		return TID_ERROR;
 
+	sema_init(&(child_info->wait_sema), 0);
+
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
-	struct init_args *init_args = palloc_get_page(PAL_ZERO);
+	struct init_args *init_args = malloc(sizeof(struct init_args));
 	if (init_args == NULL)
 		return TID_ERROR;
 
 	sema_init(&(init_args->init_sema), 0);
 	init_args->child = child_info;
 
-	init_args->fn_copy = (void *)init_args + sizeof(struct init_args); // 포인터 뒤로 이동시켜서 뒤의 주소를 fn_copy에 연결
-	strlcpy(init_args->fn_copy, file_name, PGSIZE - sizeof(struct init_args));
+	init_args->fn_copy = malloc(strlen(file_name) + 1);
+	if (init_args->fn_copy == NULL)
+		return TID_ERROR;
+
+	strlcpy(init_args->fn_copy, file_name, strlen(file_name) + 1);
 	
 	// 프로그램 이름 추출용 복사본
-	fn_copy2 = palloc_get_page (0);
+	fn_copy2 = malloc(strlen(file_name) + 1);
 	if (fn_copy2 == NULL) {
-		palloc_free_page(fn_copy);
+		free(fn_copy);
 		return TID_ERROR;
 	}
-	strlcpy (fn_copy2, file_name, PGSIZE);
+	strlcpy (fn_copy2, file_name, strlen(file_name) + 1);
 
 	char *program, *save_ptr;
 	program = strtok_r(fn_copy2, " ", &save_ptr);
@@ -118,16 +123,18 @@ process_create_initd (const char *file_name) {
 	
 	if (tid == TID_ERROR) {
 		/* 생성 실패 시 바로 자원 반납*/
-		palloc_free_page (init_args);
-		palloc_free_page(fn_copy2); 
+		free(init_args->fn_copy);
+		free(init_args);
+		free(fn_copy2); 
 		return -1;
 	}
 
 	sema_down(&(init_args->init_sema));
 
-	list_push_front(&(thread_current()->child_list), &(init_args->child->elem)); // 부모의 child_list에 자식 추가 
-	palloc_free_page (init_args);
-	palloc_free_page(fn_copy2); 
+	list_push_front(&(thread_current()->child_list), &(child_info->elem)); // 부모의 child_list에 자식 추가 
+	free(init_args->fn_copy);
+	free (init_args);
+	free(fn_copy2); 
 
 	/* process_wait(메인 쓰레드)는 해당 쓰레드가 종료될 때(유저 프로세스)까지 wait함 */
 	return tid;
@@ -351,7 +358,6 @@ process_exec (void *f_name) {
 	struct thread *curr = thread_current();
 	curr->my_info->tid = curr->tid;
 	curr->my_info->exit_status = 0;
-	sema_init(&(curr->my_info->wait_sema), 0);
 	curr->my_info->ref_count = 2;
 
 	// 기다리는 semaphore가 있으면, up시키기
@@ -379,27 +385,37 @@ process_exec (void *f_name) {
 int
 process_wait (tid_t child_tid) {
 	struct thread *curr = thread_current();
-    struct thread *child = NULL;
+	struct child_info *child_info = NULL;
 	struct list_elem *target = list_begin(&curr -> child_list);
 
 	while(target != list_end(&curr -> child_list)){
-		struct thread *t = list_entry(target, struct thread, child_elem);
-		if(t -> tid == child_tid){
-			child = t;
-			list_remove(target);
+		child_info = list_entry(target, struct child_info, elem);
+
+		if(child_info->tid == child_tid){
 			break;
 		}
 		target = list_next(target);
 	}
 
-    if (child == NULL) {
+
+    if (child_info == NULL) {
         return -1;
     }
 
-	sema_down(&child->wait_sema);
-	// printf("[부모 프로세스] %s 종료되었고,  exit_status는 %d 입니다. \n", child->name, child->exit_status);
+	sema_down(&(child_info->wait_sema));
 
-    return child->exit_status;
+	int child_exit_status = child_info->exit_status;
+	list_remove(&(child_info->elem));
+	child_info->ref_count --;
+
+	// 참조하는 프로세스가 없으면 해제해주기
+	if (child_info->ref_count == 0) {
+		// palloc_free_page(child_info);
+		free(child_info);
+		child_info = NULL;
+	}
+
+    return child_exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -432,9 +448,11 @@ process_exit (void) {
 		file_close(curr_file);
 	}
 
+	// child_info 값 갱신한 뒤에, sema_up
 	curr->my_info->exit_status = curr->exit_status;
 	curr->my_info->ref_count--;
-	sema_up(&curr->wait_sema);
+
+	sema_up(&(curr->my_info->wait_sema));
 
 	process_cleanup ();
 }
