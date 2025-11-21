@@ -211,11 +211,6 @@ thread_create (const char *name, int priority,
 	/* 선점 구현 */
 	thread_preemption(list_entry(list_begin(&ready_list), struct thread, elem)); 
 
-	#ifdef USERPROG
-	// struct thread *curr = thread_current();
-	// t->parent = curr;
-	// list_push_back(&curr->child_list, &t->child_elem);
-	#endif
 	return tid;
 }
 

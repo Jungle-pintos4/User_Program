@@ -123,7 +123,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		default:
-			printf("%llu", syscall_num); 
+			printf("undefined system call! %llu", syscall_num); 
 			exit(-1);
 			break;
 	}

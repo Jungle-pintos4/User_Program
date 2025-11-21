@@ -95,6 +95,7 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	}
 
+	/* thread_create에 aux로 넘기기 위해 구조체 생성 */
 	struct initd_fn *init_fn = malloc(sizeof(struct initd_fn));
 	if(init_fn == NULL){
 		free(child_info);
@@ -388,13 +389,6 @@ process_exit (void) {
 		printf("%s: exit(%d)\n", curr->name, curr-> exit_status);
 	}
 
-	struct list *lock_list = &curr -> lock_list;
-	while(!list_empty(lock_list)){
-		struct list_elem *e = list_pop_front(lock_list);
-		struct lock *l = list_entry(e, struct lock, elem);
-		lock_release(l);
-	}
-
 	// Process termination -> 파일 설명자 테이블 제거 
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
@@ -666,7 +660,6 @@ done:
 	}
 	if(fn_copy != NULL){
 		palloc_free_page(fn_copy);
-		/* file name도 해제 고려해야 함*/
 	}
 	return success;
 }
@@ -681,7 +674,7 @@ void argument_passing(char *argv[], int argc, struct intr_frame *frame){
 		// 공간 확보 : 여기 len 바이트만큼 공간 쓸게
 		frame->rsp -= len;
 		// 실제 데이터 삽입
-		memcpy(frame->rsp, argv[i], len);
+		memcpy((void *)frame->rsp, argv[i], len);
 		/* 인자 문자열 삽입 후 argv[argc - 1] ~ argv[0] 삽입을 위해 백업*/
         arg_addresses[i] = frame->rsp;
 	}
