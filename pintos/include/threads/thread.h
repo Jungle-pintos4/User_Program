@@ -12,6 +12,7 @@
 #include "vm/vm.h"
 #endif
 
+struct child_status;
 
 /* 스레드의 생명 주기에서의 상태들. */
 enum thread_status {
@@ -32,6 +33,8 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* 최고 우선순위. */
 /* 파일 디스크립터 최대 */
 #define MAX_FD 64
+
+
 /* 커널 스레드 또는 사용자 프로세스.
  *
  * 각 스레드 구조체는 자체 4 kB 페이지에 저장됨. 스레드 구조체
@@ -101,14 +104,11 @@ struct thread {
 #ifdef USERPROG
 	/* userprog/process.c가 소유함. */
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
-
-	int exit_status;                    // 종료 상태 (기본값 -1)
-	struct semaphore wait_sema;         // wait 동기화
-	struct thread *parent;              // 부모 프로세스
+	struct child_status *child_stat;	// 자식 상태 구조체
 	struct list child_list;             // 자식 리스트
-	struct list_elem child_elem;        // 자식 리스트의 요소
-
+	struct file *execute_file;			// 실행 중인 파일
 	struct file **fd_table; 			// file descriptor table (one table per process)
+	int exit_status;    
 #endif
 #ifdef VM
 	/* 스레드가 소유한 전체 가상 메모리를 위한 테이블. */
@@ -116,12 +116,14 @@ struct thread {
 #endif
 
 	/* thread.c가 소유함. */
-	struct intr_frame tf;               /* 전환을 위한 정보 */
+	struct intr_frame tf;               /* 전환을 위한 정보 , 문맥 전환 시 사용하기 때문에 다른 용도로 사용금지*/
+	struct intr_frame *pf;				/* 부모의 if 구조체 일 때 사용*/
 	unsigned magic;                     /* 스택 오버플로우를 감지. */
 
 	// time_sleep에서 깨어날 시간
 	int64_t wakeup_tick;
 };
+
 
 /* false(기본값)이면 라운드 로빈 스케줄러 사용.
    true이면 다단계 피드백 큐 스케줄러 사용.

@@ -211,11 +211,6 @@ thread_create (const char *name, int priority,
 	/* 선점 구현 */
 	thread_preemption(list_entry(list_begin(&ready_list), struct thread, elem)); 
 
-	#ifdef USERPROG
-	struct thread *curr = thread_current();
-	t->parent = curr;
-	list_push_back(&curr->child_list, &t->child_elem);
-	#endif
 	return tid;
 }
 
@@ -442,7 +437,8 @@ void thread_donate_priority(struct thread *thread) {
 			}
 		}
 
-		if (!thread->waiting_lock) {
+		struct lock *next_lock = thread->waiting_lock;
+		if (next_lock == NULL || next_lock->holder == NULL) {
 			break;
 		}
 
@@ -557,9 +553,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_list = NULL;
 	list_init(&t->lock_list);
 #ifdef USERPROG
-	t->exit_status = -1;
-	sema_init(&t->wait_sema, 0);
-	t->parent = NULL;
+	t->pf = NULL;
+	t->child_stat = NULL;
+	t->execute_file = NULL;
 	list_init(&t->child_list);
 #endif
 }

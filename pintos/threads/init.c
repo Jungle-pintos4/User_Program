@@ -236,7 +236,7 @@ parse_options (char **argv) {
 	return argv;
 }
 
-/* Runs the task specified in ARGV[1]. */
+/* 프로세스 생성 및 실행을 위한 함수 */
 static void
 run_task (char **argv) {
 	/* run 'echo x' -> 'echo x'*/
