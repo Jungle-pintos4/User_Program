@@ -106,10 +106,7 @@ struct thread {
 	uint64_t *pml4;                     /* 페이지 맵 레벨 4 */
 
 	int exit_status;                    // 종료 상태 (기본값 -1)
-	struct semaphore wait_sema;         // wait 동기화
-	struct thread *parent;              // 부모 프로세스
 	struct list child_list;             // 자식 리스트
-	struct list_elem child_elem;        // 자식 리스트의 요소
 
 	struct file **fd_table; 			// file descriptor table (one table per process)
 	struct file *executable_file; 		// 현재 쓰레드가 실행 중인 파일 (쓰기 거부해야 함)

@@ -21,7 +21,7 @@
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
-#include "synch.h"
+#include "threads/synch.h"
 #endif
 
 static void process_cleanup (void);
@@ -36,11 +36,11 @@ static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 해당 구조체를 참조하는 프로세스의 개수가 0이 될 때 free된다.
 */
 struct child_info {
-	tid_t tid; 						// 자식 프로세스의 tid 값
+	tid_t tid; 					// 자식 프로세스의 tid 값
 	int exit_status;				// 자식 프로세스의 종료 상태
 	struct semaphore wait_sema; 	// 자식 프로세스가 종료됨을 부모에게 알리기 위한 프로세스 (process_wait에서 사용)
 	struct list_elem elem;			// 부모의 child_list에 추가될 elem
-	int ref_count;					// 현재 구조체가 참조되고 있는 횟수
+	struct lock lock;
 };
 
 // fork할 때 인자값으로 전달하는 struct 구조 선언
@@ -91,6 +91,7 @@ process_create_initd (const char *file_name) {
 		goto error;
 
 	sema_init(&(child_info->wait_sema), 0);
+	lock_init(&child_info->lock);
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -173,6 +174,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 		goto error;
 
 	sema_init(&(child_info->wait_sema), 0);
+	lock_init(&child_info->lock);
 		
 	// args 값 초기화
 	args->curr = thread_current();
@@ -229,7 +231,6 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	parent_page = pml4_get_page (parent->pml4, va); // 유저 주소 (va)를 토대로 커널 주소를 찾음 (parent_page)
 
 	if (parent_page == NULL) { // 유효하지 않은 주소
-		// 이러면 어카지
 		return false;
 	}
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
@@ -237,7 +238,6 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 
 	void *result = palloc_get_page(PAL_USER | PAL_ZERO); // 자식 프로세스를 위해 새롭게 물리 페이지를 할당받음
 	if (result == NULL) {
-		// 이러면 어카냐
 		return false;
 	}
 
@@ -251,7 +251,6 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, new_page, writable)) { // 물리 페이지를 자식 프로세스의 pml4에 등록함
 		/* 6. TODO: if fail to insert page, do error handling. */
-		// 이것도 어카냐
 		return false;
 	}
 	return true;
@@ -311,7 +310,6 @@ __do_fork (void *aux) {
 
 		my_info->tid = current->tid;
 		my_info->exit_status = 0;
-		my_info->ref_count = 2;
 		current->my_info = my_info;
 
 		sema_up(fork_sema);
@@ -321,10 +319,9 @@ __do_fork (void *aux) {
 error:
 	my_info->tid = current->tid;
 	my_info->exit_status = -1;
-	my_info->ref_count = 0;
 
 	current->exit_status = -1;
-	current->my_info = my_info;
+	current->my_info = NULL;
 
 	sema_up(fork_sema);
 	thread_exit ();
@@ -353,23 +350,13 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
-	// 파싱된 file_name으로 filesys_open을 시도
-	// char *save_ptr;
-	// strtok_r(file_name, " ", &save_ptr);
-
-	// struct file* curr_file = filesys_open(file_name);
-	// if (curr_file != NULL) {
-	// 	// file_name이 유효한 값일 때만, executable_file 갱신 및 deny_write 설정
-	// 	thread_current()->executable_file = curr_file;
-	// 	file_deny_write(curr_file);
-	// }
-
 	/* If load failed, quit. */
 	free(file_name);
 	if (!success) {
 		if (curr->load_sema != NULL) {
 			struct semaphore *tmp_sema = curr->load_sema;
 			curr->load_sema = NULL;
+			curr->my_info = NULL;
 			sema_up(tmp_sema);
 		}
 
@@ -379,7 +366,6 @@ process_exec (void *f_name) {
 	/* 성공했으므로, sema_up 시키고 child_info 구조체 초기화 */
 	curr->my_info->tid = curr->tid;
 	curr->my_info->exit_status = 0;
-	curr->my_info->ref_count = 2;
 
 	// 기다리는 semaphore가 있으면, up시키기
 	if (curr->load_sema != NULL) {
@@ -424,15 +410,14 @@ process_wait (tid_t child_tid) {
 
 	sema_down(&(child_info->wait_sema));
 
+	lock_acquire(&child_info->lock);
 	int child_exit_status = child_info->exit_status;
 	list_remove(&(child_info->elem));
-	child_info->ref_count --;
+	lock_release(&child_info->lock);
 
 	// 참조하는 프로세스가 없으면 해제해주기
-	if (child_info->ref_count == 0) {
-		free(child_info);
-		child_info = NULL;
-	}
+	free(child_info);
+	child_info = NULL;
 
     return child_exit_status;
 }
@@ -469,11 +454,15 @@ process_exit (void) {
 		curr->executable_file = NULL;
 	}
 
-	// child_info 값 갱신한 뒤에, sema_up
+	// 부모에게 종료되었음을 알림
 	if (curr->my_info != NULL) {
-		curr->my_info->exit_status = curr->exit_status;
-		curr->my_info->ref_count--;
-		sema_up(&(curr->my_info->wait_sema));
+		struct child_info *info = curr->my_info;
+		
+		lock_acquire(&info->lock);
+		info->exit_status = curr->exit_status;
+		lock_release(&info->lock);
+
+		sema_up(&(info->wait_sema));
 	}
 
 	process_cleanup ();
