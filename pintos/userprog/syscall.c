@@ -207,7 +207,7 @@ open(const char *file){
 	lock_release(&filesys_lock);
 
 	palloc_free_page(fn_copy);
-	if(new_file == NULL){
+	if (new_file == NULL) {
 		return -1;
 	}
 
@@ -342,12 +342,9 @@ static bool remove(const char *file){
 }
 
 static int dup2(int oldfd, int newfd){
-	if (oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD){
+	if (oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD) {
 		return -1;
 	}
-
-	if(oldfd == newfd) return newfd;
-	// if (oldfd == ) 
 
 	struct thread *cur = thread_current();
 	struct file *old_file = cur -> fd_table[oldfd];
@@ -355,11 +352,15 @@ static int dup2(int oldfd, int newfd){
 	if (old_file == NULL)
 		return -1;
 
+	if(oldfd == newfd) return newfd;
+
 	if (old_file == STDIN_MARKER || old_file == STDOUT_MARKER) {
 		if (new_file != NULL && new_file != STDIN_MARKER && new_file != STDOUT_MARKER) {
 			lock_acquire(&filesys_lock);
 			file_close(new_file);
 			lock_release(&filesys_lock);
+
+			cur->fd_table[newfd] = NULL;
 		}
 
 		cur -> fd_table[newfd] = old_file;
