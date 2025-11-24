@@ -51,7 +51,10 @@ process_init (void) {
 	if(current -> fd_table == NULL){
 		PANIC("fd_table allocation failed");
 	}
-	for(int i = 0; i < MAX_FD; i++){
+	current -> fd_table[0] = STDIN_MARKER;
+	current -> fd_table[1] = STDOUT_MARKER;
+
+	for(int i = 2; i < MAX_FD; i++) {
 		current -> fd_table[i] = NULL;
 	}
 }
@@ -267,17 +270,22 @@ __do_fork (void *aux) {
 	/* 파일 디스크립터 복사 -> 복사 성공해야만 프로세스 복제 성공이라 볼 수 있음 -> 즉, 세마포어로 시그널 전송해야 함 (fork_sema, fork_success 필요)*/
 	process_init ();
 	
-	for(int i = 0; i < MAX_FD; i++){
-		if(parent -> fd_table[i] != NULL){
-			struct file *parent_target = parent -> fd_table[i];
-			struct file *child_target = NULL;
-			lock_acquire(&filesys_lock);
-			if((child_target = file_duplicate(parent_target)) == NULL){
+	for (int i = 0; i < MAX_FD; i++) {
+		if (parent -> fd_table[i] != NULL) {
+			if (parent -> fd_table[i] == STDIN_MARKER || parent -> fd_table[i] == STDOUT_MARKER) {
+				current -> fd_table[i] = parent -> fd_table[i];
+			} else {
+				struct file *parent_target = parent -> fd_table[i];
+				struct file *child_target = NULL;
+				lock_acquire(&filesys_lock);
+				if((child_target = file_duplicate(parent_target)) == NULL){
+					lock_release(&filesys_lock);
+					goto error;
+				} 			
 				lock_release(&filesys_lock);
-				goto error;
-			} 			
-			lock_release(&filesys_lock);
-			current -> fd_table[i] = child_target;
+
+				current -> fd_table[i] = child_target;
+			} 
 		}
 	}
 
@@ -382,6 +390,11 @@ process_exit (void) {
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
 			if(curr -> fd_table[i] != NULL){
+				if (curr -> fd_table[i] == STDIN_MARKER || curr -> fd_table[i] == STDOUT_MARKER) {
+					curr -> fd_table[i] = NULL;
+					continue;	
+				}
+
 				lock_acquire(&filesys_lock);
 				file_close(curr -> fd_table[i]);
 				lock_release(&filesys_lock);
