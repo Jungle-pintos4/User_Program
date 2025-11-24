@@ -44,12 +44,13 @@ struct initd_fn{
 /* General process initializer for initd and other process. */
 /* 프로세스가 생성될 때 (initd, fork 시) 호출될 수 있으며, 
 프로세스마다 독립적인 존재해야 할 자원을 설정하는 것이다. 예시 -> 파일 디스크립터 */
-static void
+static bool
 process_init (void) {
 	struct thread *current = thread_current ();
 	current -> fd_table = malloc(sizeof (struct file *) * MAX_FD);
 	if(current -> fd_table == NULL){
-		PANIC("fd_table allocation failed");
+		// PANIC("fd_table allocation failed");
+		return false;
 	}
 	current -> fd_table[0] = STDIN_MARKER;
 	current -> fd_table[1] = STDOUT_MARKER;
@@ -57,6 +58,8 @@ process_init (void) {
 	for(int i = 2; i < MAX_FD; i++) {
 		current -> fd_table[i] = NULL;
 	}
+
+	return true;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -137,7 +140,8 @@ initd (void *f_name) {
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 	struct initd_fn *init_fn = (struct initd_fn *) f_name; 
-	process_init ();
+	if (!process_init ())
+		PANIC("Fail to init process\n");
 	struct thread *cur = thread_current();
 	cur -> child_stat = init_fn -> cs;
 	int result = process_exec (init_fn -> file_name);
@@ -191,7 +195,6 @@ process_fork (const char *name, struct intr_frame *if_) {
 		free(cs);
 		return -1;
 	}
-
 }
 
 #ifndef VM
@@ -268,8 +271,9 @@ __do_fork (void *aux) {
 #endif
 
 	/* 파일 디스크립터 복사 -> 복사 성공해야만 프로세스 복제 성공이라 볼 수 있음 -> 즉, 세마포어로 시그널 전송해야 함 (fork_sema, fork_success 필요)*/
-	process_init ();
-	
+	if (!process_init()) 
+		goto error;
+
 	for (int i = 0; i < MAX_FD; i++) {
 		if (parent -> fd_table[i] != NULL) {
 			if (parent -> fd_table[i] == STDIN_MARKER || parent -> fd_table[i] == STDOUT_MARKER) {

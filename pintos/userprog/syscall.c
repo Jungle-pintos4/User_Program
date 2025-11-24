@@ -372,7 +372,7 @@ static int dup2(int oldfd, int newfd){
 		}
 
 		lock_acquire(&filesys_lock);
-		struct file *duplicated_file = file_duplicate(old_file);
+		struct file *duplicated_file = file_add_dup_count(old_file);
 		lock_release(&filesys_lock);
 
 		if (duplicated_file == NULL)
