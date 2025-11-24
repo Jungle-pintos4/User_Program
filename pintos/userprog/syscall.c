@@ -34,6 +34,7 @@ static tid_t fork(const char *thread_name, struct intr_frame *f);
 static int exec(const char *cmd_line);
 static void seek(int fd, unsigned position);
 static bool remove(const char *file);
+static int dup2(int oldfd, int newfd);
 
 /* System call.
  *
@@ -121,6 +122,10 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_REMOVE:
 			f -> R.rax = remove((const char *)f -> R.rdi);
 			break;
+
+		case SYS_DUP2:
+            f -> R.rax = dup2((int)f->R.rdi, (int)f->R.rsi);
+            break;
 
 		default:
 			printf("undefined system call! %llu", syscall_num); 
@@ -327,6 +332,38 @@ static bool remove(const char *file){
 	lock_release(&filesys_lock);
 	return result;
 }
+
+static int
+dup2(int oldfd, int newfd){
+    /**
+     * 새 서술자의 값을 fd2로 지정
+      만일 fd2가 이미 열려있으면 fd2를 닫은 후 복제 
+      역시 성공시 새 파일 서술자, 오류시 -1을 반환
+      **/
+    if(oldfd < 0 || newfd < 0 || oldfd > MAX_FD || newfd > MAX_FD){
+        return -1;
+    }
+
+    struct thread *cur = thread_current();
+    struct file *old_file = cur->fd_table[oldfd];
+    struct file *new_file = cur->fd_table[newfd];
+
+    if(old_file == NULL){
+        return -1;
+    }
+
+    if(oldfd == newfd){
+        return newfd;
+    }
+
+    if(new_file != NULL){
+        close(newfd);
+    }
+
+    cur->fd_table[newfd] = file_duplicate(old_file);
+
+    return newfd;
+};
 
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */
