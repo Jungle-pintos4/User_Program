@@ -34,3 +34,4 @@ pintos/userprog/.test_config
 pintos/.vscode/settings.json
 .vscode/settings.json
 .vscode/launch.json
+.gemini/GEMINI.md
