@@ -33,6 +33,7 @@ static void seek(int fd, unsigned position);
 static bool remove(const char *file);
 static int dup2(int oldfd, int newfd);
 static unsigned tell (int fd);
+
 //static bool check_buffer(void *buffer, int length);
 static int64_t get_user(const uint8_t *uadder);
 static bool put_user(uint8_t *udst, uint8_t byte);
@@ -160,7 +161,7 @@ write (int fd, const void *buffer, unsigned length){
 	struct thread *cur = thread_current();
 	struct file *cur_file = cur -> fd_table[fd];
 
-	if(cur_file == STDOUT_MARKER){
+	if(cur_file == STDOUT_MARKER) {
 		putbuf(buffer, length);
 		return length;
 	}
@@ -213,9 +214,8 @@ open(const char *file){
 
 	int fd = -1;
 
-	for (int i = 0; i < MAX_FD; i++)
-	{
-		if(cur -> fd_table[i] == NULL){
+	for (int i = 0; i < MAX_FD; i++) {
+		if(cur -> fd_table[i] == NULL) {
 			cur -> fd_table[i] = new_file;
 			fd = i;
 			break;
@@ -232,34 +232,32 @@ open(const char *file){
 }
 
 static void 
-close(int fd){
+close(int fd) {
 	if (fd < 0 || fd >= MAX_FD) return ;
 
 	struct thread *cur = thread_current();
 	struct file *cur_file = cur -> fd_table[fd];
+	if (cur_file == NULL) return ;
 
-	if (cur_file == NULL)
-		return ;
-
-	if (cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER){
-		cur_file = NULL;
-		return ;
-	} else {
-		lock_acquire(&filesys_lock);
-		file_close(cur -> fd_table[fd]);
-		lock_release(&filesys_lock);
+	if (cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER) {
 		cur -> fd_table[fd] = NULL;
-	}
+		return ;
+	} 
+
+	lock_acquire(&filesys_lock);
+	file_close(cur -> fd_table[fd]);
+	lock_release(&filesys_lock);
+	cur -> fd_table[fd] = NULL;
 }
 
 static int
-filesize(int fd){
+filesize(int fd) {
 	if (fd < 0 || fd >= MAX_FD) return -1;
 
 	struct thread *cur = thread_current();
 	struct file *cur_file = cur -> fd_table[fd];
 
-	if(cur_file == NULL || cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER){
+	if(cur_file == NULL || cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER) {
 		return -1;
 	}
 
@@ -292,12 +290,12 @@ read(int fd, void *buffer, unsigned size){
 		}
 
 		return rd_size;
-	} else {
-		lock_acquire(&filesys_lock);
-		off_t bytes_read = file_read(cur_file, buffer, size);
-		lock_release(&filesys_lock);
-		return bytes_read;
-	}
+	} 
+
+	lock_acquire(&filesys_lock);
+	off_t bytes_read = file_read(cur_file, buffer, size);
+	lock_release(&filesys_lock);
+	return bytes_read;	
 }
 
 static int exec(const char *cmd_line){
@@ -352,25 +350,20 @@ static int dup2(int oldfd, int newfd){
 	if (old_file == NULL)
 		return -1;
 
-	if(oldfd == newfd) return newfd;
+	if (oldfd == newfd) 
+		return newfd;
+
+	if (new_file != NULL && new_file != STDIN_MARKER && new_file != STDOUT_MARKER) {
+		lock_acquire(&filesys_lock);
+		file_close(new_file);
+		lock_release(&filesys_lock);
+
+		cur->fd_table[newfd] = NULL;
+	}
 
 	if (old_file == STDIN_MARKER || old_file == STDOUT_MARKER) {
-		if (new_file != NULL && new_file != STDIN_MARKER && new_file != STDOUT_MARKER) {
-			lock_acquire(&filesys_lock);
-			file_close(new_file);
-			lock_release(&filesys_lock);
-
-			cur->fd_table[newfd] = NULL;
-		}
-
 		cur -> fd_table[newfd] = old_file;
 	} else {
-		if (new_file != NULL && new_file != STDIN_MARKER && new_file != STDOUT_MARKER) {
-			lock_acquire(&filesys_lock);
-			file_close(new_file);
-			lock_release(&filesys_lock);
-		}
-
 		lock_acquire(&filesys_lock);
 		struct file *duplicated_file = file_inc_ref_count(old_file);
 		lock_release(&filesys_lock);

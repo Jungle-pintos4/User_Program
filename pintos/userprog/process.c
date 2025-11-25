@@ -34,12 +34,10 @@ static struct child_status* init_child(struct thread *th);
 
 static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 
-
-struct initd_fn{
+struct initd_fn {
 	char *file_name;
 	struct child_status *cs;
 };
-
 
 /* General process initializer for initd and other process. */
 /* 프로세스가 생성될 때 (initd, fork 시) 호출될 수 있으며, 
@@ -49,7 +47,6 @@ process_init (void) {
 	struct thread *current = thread_current ();
 	current -> fd_table = malloc(sizeof (struct file *) * MAX_FD);
 	if(current -> fd_table == NULL){
-		// PANIC("fd_table allocation failed");
 		return false;
 	}
 	current -> fd_table[0] = STDIN_MARKER;
@@ -142,10 +139,12 @@ initd (void *f_name) {
 	struct initd_fn *init_fn = (struct initd_fn *) f_name; 
 	if (!process_init ())
 		PANIC("Fail to init process\n");
+	
 	struct thread *cur = thread_current();
 	cur -> child_stat = init_fn -> cs;
 	int result = process_exec (init_fn -> file_name);
 	free(f_name);
+
 	if (result < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -226,7 +225,6 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	memcpy(newpage, parent_page, PGSIZE);
 	writable = is_writable(pte);
 
-
 	/* 5. 새로 복사한 페이지를 페이지 테이블에 설정 */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. 복사 실패 시 새로운 페이지 반환 후 실패 처리 */
@@ -278,32 +276,37 @@ __do_fork (void *aux) {
 		if (parent -> fd_table[i] != NULL) {
 			if (parent -> fd_table[i] == STDIN_MARKER || parent -> fd_table[i] == STDOUT_MARKER) {
 				current -> fd_table[i] = parent -> fd_table[i];
-			} else {
-				struct file *parent_target = parent -> fd_table[i];
-				struct file *child_target = NULL;
-
-				int j = 0;
-				for (j = 0; j < i; j++) {
-					if (parent_target == parent -> fd_table[j]) {
-						break;
-					}
-				}
-
-				if (j == i) {
-					lock_acquire(&filesys_lock);
-					if((child_target = file_duplicate(parent_target)) == NULL) {
-						lock_release(&filesys_lock);
-						goto error;
-					} 			
-					lock_release(&filesys_lock);
-					current -> fd_table[i] = child_target;
-				} else {
-					lock_acquire(&filesys_lock);
-					file_inc_ref_count(current -> fd_table[j]);
-					lock_release(&filesys_lock);
-					current -> fd_table[i] = current -> fd_table[j];
-				}
+				continue;
 			} 
+
+			// parent -> fd_table[i] 가 일반 파일 객체인 경우
+			struct file *parent_target = parent -> fd_table[i];
+			struct file *child_target = NULL;
+			int j = 0;
+
+			for (j = 0; j < i; j++) {
+				if (parent_target == parent -> fd_table[j]) {
+					break;
+				}
+			}
+
+			if (j == i) {
+				/* 처음 발견된 파일 객체 */
+				lock_acquire(&filesys_lock);
+				child_target = file_duplicate(parent_target);
+				lock_release(&filesys_lock);
+
+				if (child_target == NULL) 
+					goto error;
+				 			
+				current -> fd_table[i] = child_target;
+			} else {
+				/* 이미 복사했던 파일 객체와 동일한 경우 */
+				lock_acquire(&filesys_lock);
+				file_inc_ref_count(current -> fd_table[j]);
+				lock_release(&filesys_lock);
+				current -> fd_table[i] = current -> fd_table[j];
+			}
 		}
 	}
 
@@ -311,7 +314,7 @@ __do_fork (void *aux) {
 	if_.R.rax = 0;
 	
 	/* Finally, switch to the newly created process. */
-	if (succ){
+	if (succ) {
 		current -> child_stat = cs;
 		cs -> fork_success = true;
 		cs -> tid = current -> tid;
@@ -393,7 +396,6 @@ process_wait (tid_t child_tid) {
 
 	free(child);
 	return status;
-
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -405,9 +407,9 @@ process_exit (void) {
 	}
 
 	// Process termination -> 파일 설명자 테이블 제거 
-	if(curr -> fd_table != NULL){
-		for(int i = 0; i < MAX_FD; i++){
-			if(curr -> fd_table[i] != NULL){
+	if(curr -> fd_table != NULL) {
+		for(int i = 0; i < MAX_FD; i++) {
+			if(curr -> fd_table[i] != NULL) {
 				if (curr -> fd_table[i] == STDIN_MARKER || curr -> fd_table[i] == STDOUT_MARKER) {
 					curr -> fd_table[i] = NULL;
 					continue;	
@@ -421,17 +423,9 @@ process_exit (void) {
 		free(curr -> fd_table);
 		curr -> fd_table = NULL;
 	}
-	process_cleanup ();
+	process_cleanup();
 
-	/* 부모가 자식보다 먼저 죽으면 직계 자식의 자식 관련 구조체 제거 -> 추후 고아 프로세스 로직으로 대체예정(사용 금지)*/
-	// struct list_elem *e = list_begin(&curr -> child_list);
-	// while(e != list_end(&curr -> child_list)){
-	// 	struct child_status *child_stat = list_entry(e, struct child_status, child_elem);
-	// 	e = list_remove(target);
-	// 	free(child_stat);
-	// }
-
-	if(curr -> child_stat != NULL){
+	if(curr -> child_stat != NULL) {
 		struct child_status *ch_stat = curr -> child_stat;
 		ch_stat -> exited = true;
 		ch_stat -> exit_status = curr -> exit_status;
