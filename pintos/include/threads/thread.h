@@ -22,6 +22,19 @@ enum thread_status {
 	THREAD_DYING        /* 곧 소멸될 예정. */
 };
 
+
+enum fd_type {
+	FD_STDIN,
+	FD_STDOUT,
+	FD_FILE
+};
+
+struct file_descriptor{
+	struct file *file;
+	int ref_count;
+	enum fd_type type;
+};
+
 /* 스레드 식별자 타입.
    원하는 타입으로 재정의할 수 있음. */
 typedef int tid_t;
@@ -32,7 +45,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* 기본 우선순위. */
 #define PRI_MAX 63                      /* 최고 우선순위. */
 /* 파일 디스크립터 최대 */
-#define MAX_FD 64
+#define MAX_FD 512
 
 
 /* 커널 스레드 또는 사용자 프로세스.
@@ -107,7 +120,7 @@ struct thread {
 	struct child_status *child_stat;	// 자식 상태 구조체
 	struct list child_list;             // 자식 리스트
 	struct file *execute_file;			// 실행 중인 파일
-	struct file **fd_table; 			// file descriptor table (one table per process)
+	struct file_descriptor **fd_table; 	// file descriptor table (one table per process)
 	int exit_status;    
 #endif
 #ifdef VM
