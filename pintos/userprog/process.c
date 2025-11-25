@@ -281,14 +281,28 @@ __do_fork (void *aux) {
 			} else {
 				struct file *parent_target = parent -> fd_table[i];
 				struct file *child_target = NULL;
-				lock_acquire(&filesys_lock);
-				if((child_target = file_duplicate(parent_target)) == NULL){
-					lock_release(&filesys_lock);
-					goto error;
-				} 			
-				lock_release(&filesys_lock);
 
-				current -> fd_table[i] = child_target;
+				int j = 0;
+				for (j = 0; j < i; j++) {
+					if (parent_target == parent -> fd_table[j]) {
+						break;
+					}
+				}
+
+				if (j == i) {
+					lock_acquire(&filesys_lock);
+					if((child_target = file_duplicate(parent_target)) == NULL) {
+						lock_release(&filesys_lock);
+						goto error;
+					} 			
+					lock_release(&filesys_lock);
+					current -> fd_table[i] = child_target;
+				} else {
+					lock_acquire(&filesys_lock);
+					file_inc_ref_count(current -> fd_table[j]);
+					lock_release(&filesys_lock);
+					current -> fd_table[i] = current -> fd_table[j];
+				}
 			} 
 		}
 	}
