@@ -26,14 +26,17 @@ static void check_valid_access(void *uaddr);
 static void close(int fd);
 static int read(int fd, void *buffer, unsigned size);
 static int filesize(int fd);
-//static bool check_buffer(void *buffer, int length);
-static int64_t get_user(const uint8_t *uadder);
-static bool put_user(uint8_t *udst, uint8_t byte);
 static int wait(tid_t pid);
 static tid_t fork(const char *thread_name, struct intr_frame *f);
 static int exec(const char *cmd_line);
 static void seek(int fd, unsigned position);
 static bool remove(const char *file);
+static int dup2(int oldfd, int newfd);
+static unsigned tell (int fd);
+
+//static bool check_buffer(void *buffer, int length);
+static int64_t get_user(const uint8_t *uadder);
+static bool put_user(uint8_t *udst, uint8_t byte);
 
 /* System call.
  *
@@ -122,8 +125,16 @@ syscall_handler (struct intr_frame *f) {
 			f -> R.rax = remove((const char *)f -> R.rdi);
 			break;
 
+		case SYS_DUP2:
+			f -> R.rax = dup2((int) f -> R.rdi, (int) f -> R.rsi);
+			break;
+
+		case SYS_TELL:
+			f -> R.rax = tell((int) f -> R.rdi);
+			break;
+
 		default:
-			printf("undefined system call! %llu", syscall_num); 
+			printf("undefined system call! %llu \n", syscall_num); 
 			exit(-1);
 			break;
 	}
@@ -145,17 +156,17 @@ exit(int status){
 static int 
 write (int fd, const void *buffer, unsigned length){
 	check_valid_access(buffer);
-	struct thread *cur = thread_current();
-	if(fd <= 0 || fd >= MAX_FD){
-		return -1;
-	}
+	if(fd < 0 || fd >= MAX_FD) return -1;
 
-	if(fd == 1){
+	struct thread *cur = thread_current();
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if(cur_file == STDOUT_MARKER) {
 		putbuf(buffer, length);
 		return length;
 	}
-	struct file *cur_file = cur -> fd_table[fd];
-	if(cur_file == NULL || is_file_allow_write(cur_file)) return -1;
+
+	if(cur_file == NULL || cur_file == STDIN_MARKER || is_file_allow_write(cur_file)) return -1;
 
 	lock_acquire(&filesys_lock);
 	off_t actual_byte_written = file_write(cur_file, buffer, length);
@@ -167,7 +178,7 @@ write (int fd, const void *buffer, unsigned length){
 static bool 
 create(const char *file, unsigned initial_size){
 	check_valid_access(file);
-	if(strlen(file) > 14){
+	if (strlen(file) > 14){
 		return false;
 	}
 
@@ -191,23 +202,20 @@ open(const char *file){
 		return -1;
 	}
 	strlcpy(fn_copy, file, PGSIZE);
-
 	
 	lock_acquire(&filesys_lock);
 	struct file *new_file = filesys_open(fn_copy);
 	lock_release(&filesys_lock);
 
-
 	palloc_free_page(fn_copy);
-	if(new_file == NULL){
+	if (new_file == NULL) {
 		return -1;
 	}
 
 	int fd = -1;
 
-	for (int i = 2; i < MAX_FD; i++)
-	{
-		if(cur -> fd_table[i] == NULL){
+	for (int i = 0; i < MAX_FD; i++) {
+		if(cur -> fd_table[i] == NULL) {
 			cur -> fd_table[i] = new_file;
 			fd = i;
 			break;
@@ -223,38 +231,35 @@ open(const char *file){
 	return fd;
 }
 
-/* TODO : 현재 로직은 시작 주소만 검증하기 때문에, 만약 시작 주소 + 오프셋과 같은 읽기 쓰기에서 주소 침범 문제 발생 가능	
-하단의 get_user, put_user로 로직 대체가 필요할 수 있으나, 현재까지 테스트 케이스에서 문제가 되지는 않음.
-*/
 static void 
-check_valid_access(void *uaddr){
-	struct thread *cur = thread_current();
-	if(uaddr == NULL) exit(-1);
-	if(!is_user_vaddr(uaddr)) exit(-1);
-	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
-}
+close(int fd) {
+	if (fd < 0 || fd >= MAX_FD) return ;
 
-static void 
-close(int fd){
-	if(fd < 2 || fd >= MAX_FD){
-		return;
-	}
 	struct thread *cur = thread_current();
-	if(cur -> fd_table[fd] != NULL){
-		lock_acquire(&filesys_lock);
-		file_close(cur -> fd_table[fd]);
-		lock_release(&filesys_lock);
+	struct file *cur_file = cur -> fd_table[fd];
+	if (cur_file == NULL) return ;
+
+	if (cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER) {
 		cur -> fd_table[fd] = NULL;
-	}
+		return ;
+	} 
+
+	lock_acquire(&filesys_lock);
+	file_close(cur -> fd_table[fd]);
+	lock_release(&filesys_lock);
+	cur -> fd_table[fd] = NULL;
 }
 
 static int
-filesize(int fd){
+filesize(int fd) {
+	if (fd < 0 || fd >= MAX_FD) return -1;
+
 	struct thread *cur = thread_current();
-	if(fd < 2 || fd >= MAX_FD || cur -> fd_table[fd] == NULL){
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if(cur_file == NULL || cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER) {
 		return -1;
 	}
-	struct file *cur_file = cur -> fd_table[fd];
 
 	lock_acquire(&filesys_lock);
 	off_t file_len = file_length(cur_file);
@@ -265,12 +270,16 @@ filesize(int fd){
 static int 
 read(int fd, void *buffer, unsigned size){
 	check_valid_access(buffer);
+	if (fd < 0 || fd >= MAX_FD) return -1;
+
 	struct thread *cur = thread_current();
-	if(fd < 0 || fd == 1 || fd >= MAX_FD ){
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if (cur_file == NULL || cur_file == STDOUT_MARKER) {
 		return -1;
 	}
 
-	if(fd == 0){	
+	if(cur_file == STDIN_MARKER) {	
 		unsigned rd_size = 0;
 		uint8_t *buf = (uint8_t *) buffer;
 
@@ -279,17 +288,14 @@ read(int fd, void *buffer, unsigned size){
 			buf[rd_size] = ch;
 			rd_size++;
 		}
+
 		return rd_size;
-	} else {
-		struct file *cur_file = cur -> fd_table[fd]; 
-		if(cur_file == NULL){
-			return -1;
-		}
-		lock_acquire(&filesys_lock);
-		off_t bytes_read = file_read(cur_file, buffer, size);
-		lock_release(&filesys_lock);
-		return bytes_read;
-	}
+	} 
+
+	lock_acquire(&filesys_lock);
+	off_t bytes_read = file_read(cur_file, buffer, size);
+	lock_release(&filesys_lock);
+	return bytes_read;	
 }
 
 static int exec(const char *cmd_line){
@@ -298,7 +304,6 @@ static int exec(const char *cmd_line){
 	if(cm_copy == NULL) return -1;
 	strlcpy(cm_copy, cmd_line, PGSIZE);
 	return process_exec(cm_copy);
-	
 }
 
 static int wait(tid_t pid){
@@ -311,11 +316,17 @@ static tid_t fork(const char *thread_name, struct intr_frame *f){
 }
 
 static void seek(int fd, unsigned position){
+	if (fd < 0 || fd >= MAX_FD) return -1;
+
 	struct thread *cur = thread_current();
-	struct file *target_file = cur -> fd_table[fd];
-	if(target_file == NULL) return;
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if (cur_file == NULL || cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER) {
+		return ;
+	}
+
 	lock_acquire(&filesys_lock);
-	file_seek(target_file, position);
+	file_seek(cur_file, position);
 	lock_release(&filesys_lock);
 }
 
@@ -328,6 +339,73 @@ static bool remove(const char *file){
 	return result;
 }
 
+static int dup2(int oldfd, int newfd){
+	if (oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD) {
+		return -1;
+	}
+
+	struct thread *cur = thread_current();
+	struct file *old_file = cur -> fd_table[oldfd];
+	struct file *new_file = cur -> fd_table[newfd];
+	if (old_file == NULL)
+		return -1;
+
+	if (oldfd == newfd) 
+		return newfd;
+
+	if (new_file != NULL && new_file != STDIN_MARKER && new_file != STDOUT_MARKER) {
+		lock_acquire(&filesys_lock);
+		file_close(new_file);
+		lock_release(&filesys_lock);
+
+		cur->fd_table[newfd] = NULL;
+	}
+
+	if (old_file == STDIN_MARKER || old_file == STDOUT_MARKER) {
+		cur -> fd_table[newfd] = old_file;
+	} else {
+		lock_acquire(&filesys_lock);
+		struct file *duplicated_file = file_inc_ref_count(old_file);
+		lock_release(&filesys_lock);
+
+		if (duplicated_file == NULL)
+			return -1;
+
+		cur -> fd_table[newfd] = duplicated_file;
+	}
+
+	return newfd;
+}
+
+static unsigned tell (int fd) {
+	if (fd < 0 || fd >= MAX_FD) return -1;
+
+	struct thread *cur = thread_current();
+	struct file *cur_file = cur -> fd_table[fd];
+
+	if (cur_file == NULL || cur_file == STDIN_MARKER || cur_file == STDOUT_MARKER)	
+		return 0;
+
+	lock_acquire(&filesys_lock);
+	off_t result = file_tell(cur_file);
+	lock_release(&filesys_lock);
+
+	if (result < 0)
+		return 0;
+
+	return (unsigned) result;
+}
+
+/* TODO : 현재 로직은 시작 주소만 검증하기 때문에, 만약 시작 주소 + 오프셋과 같은 읽기 쓰기에서 주소 침범 문제 발생 가능	
+하단의 get_user, put_user로 로직 대체가 필요할 수 있으나, 현재까지 테스트 케이스에서 문제가 되지는 않음.
+*/
+static void 
+check_valid_access(void *uaddr){
+	struct thread *cur = thread_current();
+	if(uaddr == NULL) exit(-1);
+	if(!is_user_vaddr(uaddr)) exit(-1);
+	if(pml4_get_page(cur -> pml4, uaddr) == NULL) exit(-1);
+}
 
 /* TODO : 혹시 시작 주소 다음 바이트에 문제가 생기면 사용하기 */
 // static bool check_buffer(void *buffer, int length) {

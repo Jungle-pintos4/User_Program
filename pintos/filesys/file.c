@@ -8,6 +8,7 @@ struct file {
 	struct inode *inode;        /* File's inode. */
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
+	int ref_count;				/* 해당 파일 객체를 가리키는 fd 번호의 개수 */
 };
 
 /* Opens a file for the given INODE, of which it takes ownership,
@@ -20,6 +21,7 @@ file_open (struct inode *inode) {
 		file->inode = inode;
 		file->pos = 0;
 		file->deny_write = false;
+		file->ref_count = 1;
 		return file;
 	} else {
 		inode_close (inode);
@@ -35,6 +37,12 @@ file_reopen (struct file *file) {
 	return file_open (inode_reopen (file->inode));
 }
 
+struct file *
+file_inc_ref_count (struct file *file) {
+	file->ref_count++;
+	return file;
+}
+
 /* Duplicate the file object including attributes and returns a new file for the
  * same inode as FILE. Returns a null pointer if unsuccessful. */
 struct file *
@@ -44,6 +52,7 @@ file_duplicate (struct file *file) {
 		nfile->pos = file->pos;
 		if (file->deny_write)
 			file_deny_write (nfile);
+		nfile->ref_count = 1;
 	}
 	return nfile;
 }
@@ -52,6 +61,11 @@ file_duplicate (struct file *file) {
 void
 file_close (struct file *file) {
 	if (file != NULL) {
+		if (file->ref_count > 1) {
+			file->ref_count --;
+			return ;
+		}
+
 		file_allow_write (file);
 		inode_close (file->inode);
 		free (file);
