@@ -54,6 +54,10 @@ process_init (void) {
 	for(int i = 0; i < MAX_FD; i++){
 		current -> fd_table[i] = NULL;
 	}
+	
+	// 초기화 시
+  	current -> fd_table[0] = STDIN_FILENO_MARKER;
+  	current -> fd_table[1] = STDOUT_FILENO_MARKER;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -272,10 +276,14 @@ __do_fork (void *aux) {
 			struct file *parent_target = parent -> fd_table[i];
 			struct file *child_target = NULL;
 			lock_acquire(&filesys_lock);
-			if((child_target = file_duplicate(parent_target)) == NULL){
-				lock_release(&filesys_lock);
-				goto error;
-			} 			
+			if(parent_target == STDIN_FILENO_MARKER || parent_target == STDOUT_FILENO_MARKER){
+				child_target = parent_target;
+			}else{
+				if((child_target = file_duplicate(parent_target)) == NULL){
+					lock_release(&filesys_lock);
+					goto error;
+				} 	
+			}		
 			lock_release(&filesys_lock);
 			current -> fd_table[i] = child_target;
 		}
@@ -381,15 +389,33 @@ process_exit (void) {
 	// Process termination -> 파일 설명자 테이블 제거 
 	if(curr -> fd_table != NULL){
 		for(int i = 0; i < MAX_FD; i++){
-			if(curr -> fd_table[i] != NULL){
-				lock_acquire(&filesys_lock);
-				file_close(curr -> fd_table[i]);
-				lock_release(&filesys_lock);
+			struct file *target = curr->fd_table[i];
+  			curr->fd_table[i] = NULL;
+			if(target == NULL){
+				continue;
+			}
+			
+			if(target == STDIN_FILENO_MARKER || target == STDOUT_FILENO_MARKER){
+				continue;
+			}else{
+					// 다른 fd가 같은 파일 참조하는지 확인
+  					bool still_referenced = false;
+  					for (int j = i + 1; j < MAX_FD; j++) {
+      					if (curr->fd_table[j] == target) {
+          					still_referenced = true;
+          					break;
+      					}
+  					}
+
+  					if (!still_referenced) {
+						lock_acquire(&filesys_lock);
+      					file_close(target);
+						lock_release(&filesys_lock);
+  					}
+				}
 			}
 		}
-		free(curr -> fd_table);
-		curr -> fd_table = NULL;
-	}
+	free(curr -> fd_table);
 	process_cleanup ();
 
 	/* 부모가 자식보다 먼저 죽으면 직계 자식의 자식 관련 구조체 제거 -> 추후 고아 프로세스 로직으로 대체예정(사용 금지)*/

@@ -32,7 +32,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* 기본 우선순위. */
 #define PRI_MAX 63                      /* 최고 우선순위. */
 /* 파일 디스크립터 최대 */
-#define MAX_FD 64
+#define MAX_FD 512
 
 
 /* 커널 스레드 또는 사용자 프로세스.
