@@ -247,6 +247,7 @@ s_open(const char *file){
 		lock_acquire(&filesys_lock);
 		file_close(new_file);
 		lock_release(&filesys_lock);
+		free(wrap_fd);
 	}
 
 	return fd;
@@ -363,7 +364,7 @@ s_fork(const char *thread_name, struct intr_frame *f){
 static void 
 s_seek(int fd, unsigned position){
 	struct file_descriptor *wrap_fd = get_fd_wrapper(fd);
-	if(wrap_fd == NULL) return;
+	if(wrap_fd == NULL || wrap_fd -> type == FD_STDIN || wrap_fd -> type == FD_STDOUT) return;
 	lock_acquire(&filesys_lock);
 	file_seek(wrap_fd -> file, position);
 	lock_release(&filesys_lock);

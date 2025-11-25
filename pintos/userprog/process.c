@@ -31,7 +31,6 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 static struct child_status* init_child(struct thread *th);
-
 static void argument_passing(char *argv[], int argc, struct intr_frame *frame);
 
 
@@ -107,6 +106,7 @@ process_create_initd (const char *file_name) {
 	struct thread *cur = thread_current();
 	struct child_status *child_info = init_child(cur);
 	if(child_info == NULL){
+		palloc_free_page(fn_copy);
 		palloc_free_page(fn_copy2);
 		return TID_ERROR;
 	}
@@ -126,7 +126,6 @@ process_create_initd (const char *file_name) {
 
 	if (up_tid == TID_ERROR){
 		/* 생성 실패 시 바로 자원 반납*/
-		palloc_free_page (fn_copy);
 		palloc_free_page (fn_copy2);
 		list_remove(&child_info -> child_elem);
 		free(init_fn);
@@ -285,46 +284,50 @@ __do_fork (void *aux) {
 	/* TODO: create_fd_wrapper 실패, file_duplicate 실패의 핸들링 고려하기 (누수 가능성)*/
 	for(int i = 0; i < MAX_FD; i++){
 		struct file_descriptor *parent_fd_info = parent -> fd_table[i];
-		if(parent -> fd_table[i] != NULL){
-			bool found = false;
-			for(int j = 0; j < i; j++){
-				if(parent_fd_info == parent -> fd_table[j]){
-					current -> fd_table[i] = current -> fd_table[j];					
-					(current -> fd_table[i]) -> ref_count++;
-					found = true;
-				}
-			}
-			if(!found){
-				struct file *child_file = NULL;
-				if(parent_fd_info -> type == FD_FILE){
-					lock_acquire(&filesys_lock);
-					if((child_file = file_duplicate(parent_fd_info -> file)) == NULL){
-						lock_release(&filesys_lock);
-						goto error;
-					}
-					lock_release(&filesys_lock);
-					
-					if((create_fd_wrapper(child_file, parent_fd_info -> type)))
-					current -> fd_table[i] = create_fd_wrapper(child_file, parent_fd_info -> type);
-				}
+
+		/* process_init에서 생성된 기본 fd(0, 1)이나 이전 루프의 잔재를 정리 */
+		if (current -> fd_table[i] != NULL) {
+			close_fd(current -> fd_table[i]);
+			current -> fd_table[i] = NULL;
+		}
+
+		if(parent_fd_info == NULL) continue;
+
+		/* 부모 테이블에서 복사 관계가 확인되면 자식도 그 관계대로 복사*/
+		bool found = false;
+		for(int j = 0; j < i; j++){
+			if(parent_fd_info == parent -> fd_table[j]){
+				current -> fd_table[i] = current -> fd_table[j];					
+				current -> fd_table[i] -> ref_count++;
+				found = true;
+				break;
 			}
 		}
-	}
+		if(found) continue;
 
-	
-	// for(int i = 0; i < MAX_FD; i++){
-	// 	if(parent -> fd_table[i] != NULL){
-	// 		struct file *parent_target = parent -> fd_table[i];
-	// 		struct file *child_target = NULL;
-	// 		lock_acquire(&filesys_lock);
-	// 		if((child_target = file_duplicate(parent_target)) == NULL){
-	// 			lock_release(&filesys_lock);
-	// 			goto error;
-	// 		} 			
-	// 		lock_release(&filesys_lock);
-	// 		current -> fd_table[i] = child_target;
-	// 	}
-	// }
+		/* 복사 관계가 없으면 그냥 복사 */
+		struct file *child_file = NULL;
+		if(parent_fd_info -> type == FD_FILE){
+			lock_acquire(&filesys_lock);
+			child_file = file_duplicate(parent_fd_info -> file);
+			lock_release(&filesys_lock);
+			if(child_file == NULL){
+				goto error;
+			}
+			struct file_descriptor *new_fd = create_fd_wrapper(child_file, parent_fd_info -> type);
+			if (new_fd == NULL) {
+				lock_acquire(&filesys_lock);
+				file_close(child_file);
+				lock_release(&filesys_lock);
+				goto error;
+			}
+			current -> fd_table[i] = new_fd;
+		} else {
+			/* FD_STDIN, FD_STDOUT*/
+			current -> fd_table[i] = parent_fd_info;
+			parent_fd_info -> ref_count++;
+		}
+	}
 
 	/* 자식 프로세스는 0으로 리턴해야 함 */
 	if_.R.rax = 0;
@@ -456,7 +459,6 @@ static void
 process_cleanup (void) {
 	struct thread *curr = thread_current ();
 	if(curr -> execute_file != NULL){
-		// file_allow_write(curr -> execute_file);
 		lock_acquire(&filesys_lock);
 		file_close(curr -> execute_file);
 		lock_release(&filesys_lock);
